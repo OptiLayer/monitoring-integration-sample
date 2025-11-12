@@ -342,21 +342,6 @@ example/
 - `GET /monitoring/active` - Get active spectrometer and vacuum chamber status
 - `GET /health` - Health check
 
-### WebSocket Streaming
-
-For real-time data streaming:
-
-```javascript
-const ws = new WebSocket('ws://localhost:8200/ws/spectral-data');
-
-ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    console.log('Spectrometer:', data.spectrometer_id);
-    console.log('Timestamp:', data.timestamp);
-    console.log('Data points:', data.calibrated_readings.length);
-};
-```
-
 ## Troubleshooting
 
 ### Port Already in Use
