@@ -83,12 +83,14 @@ class SetControlWavelengthRequest(BaseModel):
 class PostSpectralDataRequest(BaseModel):
     calibrated_readings: list[float] = Field(..., description="Calibrated spectral readings (0-100%)")
     wavelengths: list[float] = Field(..., description="Wavelength grid in nm")
+    timestamp: datetime = Field(..., description="Data acquisition timestamp from device")
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "calibrated_readings": [10.5, 25.3, 45.8, 67.2, 89.1],
                 "wavelengths": [400.0, 500.0, 600.0, 700.0, 800.0],
+                "timestamp": "2025-01-15T10:30:00",
             }
         }
     )

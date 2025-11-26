@@ -121,7 +121,7 @@ async def post_spectral_data(
         raise HTTPException(status_code=404, detail=f"Spectrometer {spectrometer_id} not found")
 
     logger.info(f"Received spectral data: {len(request.calibrated_readings)} points")
-    registry.store_spectral_data(spectrometer_id, request.calibrated_readings, request.wavelengths)
+    registry.store_spectral_data(spectrometer_id, request.calibrated_readings, request.wavelengths, request.timestamp)
 
     # Get the stored data to broadcast with timestamp
     stored_data = registry.get_spectral_data(spectrometer_id)

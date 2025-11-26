@@ -177,9 +177,11 @@ class DeviceRegistry:
         logger.warning(f"Attempted to remove non-existent spectrometer: {spectrometer_id}")
         return False
 
-    def store_spectral_data(self, spectrometer_id: str, calibrated_readings: list[float], wavelengths: list[float]):
+    def store_spectral_data(
+        self, spectrometer_id: str, calibrated_readings: list[float], wavelengths: list[float], timestamp: datetime
+    ):
         self.spectral_data[spectrometer_id] = SpectralData(
-            timestamp=datetime.now(),
+            timestamp=timestamp,
             calibrated_readings=calibrated_readings,
             wavelengths=wavelengths,
         )

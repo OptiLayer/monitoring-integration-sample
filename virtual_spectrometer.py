@@ -88,6 +88,7 @@ class VirtualSpectrometer:
                         payload = {
                             "calibrated_readings": calibrated_readings.tolist(),
                             "wavelengths": self.wavelength,
+                            "timestamp": datetime.now().isoformat(),
                         }
 
                         try:
