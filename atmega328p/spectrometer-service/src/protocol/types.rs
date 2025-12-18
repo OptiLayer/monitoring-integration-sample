@@ -10,10 +10,11 @@ pub type RawAdcValue = u32;
 pub const MAX_ADC_VALUE: RawAdcValue = 16_777_215;
 
 /// Validated GAIN values for AD7793 ADC
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Gain {
     X1 = 1,
     X2 = 2,
+    #[default]
     X4 = 4,
     X8 = 8,
     X16 = 16,
@@ -46,15 +47,10 @@ impl TryFrom<u8> for Gain {
     }
 }
 
-impl Default for Gain {
-    fn default() -> Self {
-        Gain::X4 // Default per datasheet
-    }
-}
-
 /// Validated FADC (sampling frequency) values in Hz
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum AdcFrequency {
+    #[default]
     Hz500,
     Hz250,
     Hz125,
@@ -132,19 +128,13 @@ impl TryFrom<f32> for AdcFrequency {
     }
 }
 
-impl Default for AdcFrequency {
-    fn default() -> Self {
-        AdcFrequency::Hz500 // Default per datasheet
-    }
-}
-
 /// COUNT value (1-12) - number of measurements per series
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeasurementCount(u8);
 
 impl MeasurementCount {
     pub fn new(count: u8) -> Result<Self, ProtocolError> {
-        if count < 1 || count > 12 {
+        if !(1..=12).contains(&count) {
             return Err(ProtocolError::InvalidCount(count));
         }
         Ok(Self(count))

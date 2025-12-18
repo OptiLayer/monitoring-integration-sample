@@ -95,7 +95,6 @@ impl OutlierExcluder for GrubbsExcluder {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
 
     use super::*;
 
@@ -128,7 +127,7 @@ mod tests {
         ];
         let outliers = excluder.find_outliers(&values);
 
-        assert!(outliers.len() >= 1);
+        assert!(!outliers.is_empty());
         assert!(outliers.contains(&8)); // Index of 500.0
     }
 

@@ -80,8 +80,13 @@ impl PlaybackDataSource {
 #[async_trait]
 impl DataSource for PlaybackDataSource {
     async fn start(&mut self) -> Result<mpsc::Receiver<MeasurementCycle>, SpectrometerError> {
-        let file = File::open(&self.log_file).await?;
-        let reader = BufReader::new(file);
+        // Verify file exists before spawning
+        if !self.log_file.exists() {
+            return Err(SpectrometerError::DataSource(format!(
+                "Log file not found: {:?}",
+                self.log_file
+            )));
+        }
 
         let (cycle_tx, cycle_rx) = mpsc::channel(32);
 
