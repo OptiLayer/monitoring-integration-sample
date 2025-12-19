@@ -18,7 +18,6 @@ pub struct DeviceState {
 
     // Vacuum chamber state
     pub current_material: String,
-    pub current_fraction: f64,
     pub is_depositing: bool,
 
     // Latest processed data
@@ -34,7 +33,6 @@ impl Default for DeviceState {
             control_wavelength: 550.0, // Default wavelength in nm
             is_running: false,
             current_material: "H".to_string(),
-            current_fraction: 100.0,
             is_depositing: false,
             latest_reading: None,
         }

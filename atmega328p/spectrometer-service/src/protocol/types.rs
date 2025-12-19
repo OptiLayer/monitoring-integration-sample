@@ -6,9 +6,6 @@ use crate::error::ProtocolError;
 /// Raw ADC values from ATmega328P (24-bit, 0-16777215)
 pub type RawAdcValue = u32;
 
-/// Maximum valid ADC value (24-bit)
-pub const MAX_ADC_VALUE: RawAdcValue = 16_777_215;
-
 /// Validated GAIN values for AD7793 ADC
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Gain {
@@ -184,33 +181,6 @@ impl SeriesData {
     }
 }
 
-/// Series identifier
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SeriesType {
-    Dark,   // SERIES1
-    Full,   // SERIES2
-    Sample, // SERIES3
-}
-
-impl SeriesType {
-    pub fn from_number(n: u8) -> Option<Self> {
-        match n {
-            1 => Some(SeriesType::Dark),
-            2 => Some(SeriesType::Full),
-            3 => Some(SeriesType::Sample),
-            _ => None,
-        }
-    }
-
-    pub fn as_number(&self) -> u8 {
-        match self {
-            SeriesType::Dark => 1,
-            SeriesType::Full => 2,
-            SeriesType::Sample => 3,
-        }
-    }
-}
-
 /// Complete measurement cycle from ATmega328P
 #[derive(Debug, Clone)]
 pub struct MeasurementCycle {
@@ -221,15 +191,6 @@ pub struct MeasurementCycle {
 }
 
 impl MeasurementCycle {
-    pub fn new(dark: SeriesData, full: SeriesData, sample: SeriesData) -> Self {
-        Self {
-            timestamp: Utc::now(),
-            dark,
-            full,
-            sample,
-        }
-    }
-
     pub fn with_timestamp(
         timestamp: DateTime<Utc>,
         dark: SeriesData,
@@ -333,20 +294,17 @@ mod tests {
     }
 
     #[test]
-    fn test_series_type_from_number() {
-        assert_eq!(SeriesType::from_number(1), Some(SeriesType::Dark));
-        assert_eq!(SeriesType::from_number(2), Some(SeriesType::Full));
-        assert_eq!(SeriesType::from_number(3), Some(SeriesType::Sample));
-        assert_eq!(SeriesType::from_number(4), None);
-    }
-
-    #[test]
     fn test_measurement_cycle_creation() {
         let dark = SeriesData::new(vec![100, 101, 102]);
         let full = SeriesData::new(vec![8000, 8001, 8002]);
         let sample = SeriesData::new(vec![4000, 4001, 4002]);
 
-        let cycle = MeasurementCycle::new(dark.clone(), full.clone(), sample.clone());
+        let cycle = MeasurementCycle::with_timestamp(
+            Utc::now(),
+            dark.clone(),
+            full.clone(),
+            sample.clone(),
+        );
 
         assert_eq!(cycle.dark.values, dark.values);
         assert_eq!(cycle.full.values, full.values);
