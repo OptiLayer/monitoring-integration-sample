@@ -1,0 +1,15 @@
+[project]
+name = "monitoring-example"
+version = "0.1.0"
+description = "OptiMonitor device integration example"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.11",
+    "uvicorn[standard]>=0.34.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.11.4",
+    "numpy>=1.26.2",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.8"]
