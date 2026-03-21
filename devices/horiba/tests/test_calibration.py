@@ -1,5 +1,7 @@
 """Tests for calibration logic."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -108,3 +110,44 @@ def test_capture_only_accumulates_while_active():
     cal.finalize_dark()
     cal.process_scan(np.array([100.0]))
     assert len(cal.dark_accumulator) == 0
+
+
+def test_save_and_load(tmp_path):
+    path = tmp_path / "cal.json"
+
+    # Save
+    cal = CalibrationState()
+    cal.dark_ref = np.array([10.0, 20.0, 30.0])
+    cal.white_ref = np.array([1000.0, 2000.0, 3000.0])
+    cal.save(path)
+    assert path.exists()
+
+    # Load into fresh state
+    cal2 = CalibrationState()
+    assert not cal2.is_calibrated
+    loaded = cal2.load(path)
+    assert loaded
+    assert cal2.is_calibrated
+    np.testing.assert_allclose(cal2.dark_ref, [10.0, 20.0, 30.0])
+    np.testing.assert_allclose(cal2.white_ref, [1000.0, 2000.0, 3000.0])
+
+
+def test_load_nonexistent_returns_false(tmp_path):
+    cal = CalibrationState()
+    assert not cal.load(tmp_path / "nope.json")
+    assert not cal.is_calibrated
+
+
+def test_save_partial(tmp_path):
+    path = tmp_path / "cal.json"
+
+    # Save with only dark
+    cal = CalibrationState()
+    cal.dark_ref = np.array([5.0, 10.0])
+    cal.save(path)
+
+    cal2 = CalibrationState()
+    cal2.load(path)
+    assert cal2.dark_ref is not None
+    assert cal2.white_ref is None
+    assert not cal2.is_calibrated

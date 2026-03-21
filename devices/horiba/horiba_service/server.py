@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -34,8 +35,12 @@ class ConfigRequest(BaseModel):
     speed_token: int | None = None
 
 
-def create_app(driver: HoribaDriver) -> FastAPI:
+DEFAULT_CALIBRATION_PATH = Path("calibration.json")
+
+
+def create_app(driver: HoribaDriver, calibration_path: Path = DEFAULT_CALIBRATION_PATH) -> FastAPI:
     cal = CalibrationState()
+    cal.load(calibration_path)
     monitoring = MonitoringClient()
     connected_clients: list[WebSocket] = []
     wavelengths: list[float] = []
@@ -182,6 +187,7 @@ def create_app(driver: HoribaDriver) -> FastAPI:
         await broadcast({"type": "capture_status", "capturing": "dark", "count": request.count})
         try:
             cal.dark_ref = await driver.acquire_dark(count=request.count)
+            cal.save(calibration_path)
             await broadcast({"type": "dark_ref", "values": cal.dark_ref[::DOWNSAMPLE].tolist()})
             return {"status": "done", "scans_averaged": request.count}
         finally:
@@ -194,6 +200,7 @@ def create_app(driver: HoribaDriver) -> FastAPI:
         await broadcast({"type": "capture_status", "capturing": "white", "count": request.count})
         try:
             cal.white_ref = await driver.acquire_white(count=request.count)
+            cal.save(calibration_path)
             await broadcast({"type": "white_ref", "values": cal.white_ref[::DOWNSAMPLE].tolist()})
             return {"status": "done", "scans_averaged": request.count}
         finally:
