@@ -1,282 +1,168 @@
 # ATmega328P Monochromatic Spectrometer Service
 
-A Rust service for the ATmega328P-based monochromatic spectrometer with AD7793 24-bit ADC. Integrates with the OptiMonitor system via REST API.
+Rust service for the ATmega328P-based monochromatic spectrometer with AD7793 24-bit ADC. Provides a calibration web UI and integrates with OptiMonitor via REST API.
 
-## Features
-
-- **Dual operating modes**: Real hardware via serial port or log file playback
-- **Cross-platform**: Works on both Windows and Linux
-- **Outlier exclusion**: Grubbs' test (enabled by default) for statistical outlier removal
-- **Calibration**: Automatic calculation of `(sample - dark) / (full - dark) * 100`
-- **Validation**: Ensures measurement integrity (`full > sample > dark`)
-- **REST API**: Compatible with OptiMonitor device protocol
-
-## Building
-
-### Prerequisites
-
-- Rust toolchain (1.70+): https://rustup.rs/
-- On Linux: `libudev-dev` package for serial port support
-  ```bash
-  # Debian/Ubuntu
-  sudo apt install libudev-dev
-
-  # Fedora
-  sudo dnf install systemd-devel
-  ```
-
-### Build
+## Quick Start
 
 ```bash
-cd spectrometer-service
-
-# Debug build
-cargo build
-
-# Release build (recommended)
+# Build
 cargo build --release
+
+# Playback mode (replay captured data)
+cargo run -- playback --file ../putty.log --loop-playback --cycle-interval 200
+
+# Serial mode (real device)
+cargo run -- serial --device /dev/ttyUSB0
+
+# Open calibration UI
+# http://localhost:8100
 ```
 
-The binary will be at `target/release/spectrometer-service` (or `spectrometer-service.exe` on Windows).
+## Calibration Workflow
 
-## Running
+1. **Start the service** in serial mode (or playback for testing)
+2. **Open `http://localhost:8100`** — the calibration web UI
+3. **Adjust GAIN/FADC/COUNT** in the sidebar until:
+   - No **CLIPPED** badge (no saturated ADC values at 16,777,215)
+   - Stable T% readings with low noise
+4. **Click "Save Settings"** — writes to `calibration.toml`
+5. **Next startup** automatically uses saved settings (CLI args override if provided)
 
-### Serial Mode (Real Hardware)
+The service runs calibration and monitoring simultaneously — once settings are good, connect OptiMonitor to the same service.
 
-Connect to the ATmega328P device via serial port:
+## Device Settings
+
+All values from the AD7793 datasheet:
+
+| Setting | Values | Description |
+|---------|--------|-------------|
+| GAIN | 1, 2, 4, 8, 16, 32, 64, 128 | ADC amplification. Higher = more sensitive but clips easier |
+| FADC | 500, 250, 125, 62.5, 50, 39.2, 33.3, 19.6, 16.7, 12.5, 10, 8.33, 6.25, 4.17 Hz | Sample rate. Lower = more accurate but slower |
+| COUNT | 1–12 | Measurements per series. More = better averaging, must fit in ~40ms window |
+
+Recommended starting point: **GAIN=2, FADC=250, COUNT=4** (~38ms, 0.003% error per spec).
+
+In serial mode, settings are sent to the device immediately when changed in the UI.
+
+## Operating Modes
+
+### Serial (Real Hardware)
 
 ```bash
-# Linux
-./spectrometer-service serial --device /dev/ttyUSB0
-
-# Windows
-spectrometer-service.exe serial --device COM3
-
-# With custom baud rate (default: 38400)
-./spectrometer-service serial --device /dev/ttyUSB0 --baud 115200
+cargo run -- serial --device /dev/ttyUSB0 [--baud 38400] [--gain 4] [--fadc 500] [--count 3]
 ```
 
-### Playback Mode (Log File)
+- Connects to ATmega328P over serial at 38400 baud
+- `--gain`, `--fadc`, `--count` override saved config if provided
+- Without those flags, uses values from `calibration.toml`
+- Settings changes from the web UI are sent to the device in real-time
 
-Replay measurements from a timestamped log file:
+### Playback (Log File)
 
 ```bash
-# Real-time playback
-./spectrometer-service playback --file measurements.log
-
-# 10x speed playback
-./spectrometer-service playback --file measurements.log --speed 10.0
-
-# Loop continuously
-./spectrometer-service playback --file measurements.log --loop-playback
-
-# Combined: fast looping playback
-./spectrometer-service playback --file fixtures/sample_log.txt --speed 10.0 --loop-playback
+cargo run -- playback --file <path> [--speed 2.0] [--loop-playback] [--cycle-interval 100]
 ```
 
-### List Available Serial Ports
+Supports two log formats (auto-detected):
 
-Helpful for finding the correct port name:
-
-```bash
-./spectrometer-service --list-ports
+**Timestamped** (from the service's own logging):
 ```
-
-Output example:
-```
-Available serial ports:
-  /dev/ttyUSB0 - USB - USB Serial Device
-  /dev/ttyACM0 - USB - Arduino Uno
-```
-
-## CLI Options
-
-```
-spectrometer-service [OPTIONS] [COMMAND]
-
-Commands:
-  serial    Connect to real hardware via serial port
-  playback  Playback from log file
-
-Options:
-  -l, --listen <PORT>           HTTP server port [default: 8100]
-      --host <HOST>             HTTP server host [default: 0.0.0.0]
-      --list-ports              List available serial ports and exit
-      --outlier-method <METHOD> Outlier exclusion: none, grubbs [default: grubbs]
-      --grubbs-alpha <ALPHA>    Significance level for Grubbs test [default: 0.05]
-  -h, --help                    Print help
-  -V, --version                 Print version
-
-Serial options:
-  -d, --device <DEVICE>         Serial port path (e.g., COM3, /dev/ttyUSB0)
-  -b, --baud <BAUD>             Baud rate [default: 38400]
-
-Playback options:
-  -f, --file <FILE>             Path to log file
-  -s, --speed <SPEED>           Playback speed multiplier [default: 1.0]
-      --loop-playback           Loop when file ends
-```
-
-## REST API Endpoints
-
-The service exposes these endpoints for OptiMonitor integration:
-
-### Device Information
-
-```
-GET /device/info
-```
-
-Returns device capabilities:
-```json
-{
-  "is_monochromatic": true,
-  "supported_wavelengths": null
-}
-```
-
-### Device Registration
-
-```
-POST /register
-Content-Type: application/json
-
-{
-  "monitoring_api_url": "http://localhost:8000",
-  "spectrometer_id": "spec-123",
-  "vacuum_chamber_id": "chamber-456"
-}
-```
-
-### Control Wavelength (Dummy)
-
-```
-GET /control_wavelength
-POST /control_wavelength
-Content-Type: application/json
-
-{"wavelength": 550.0}
-```
-
-### Vacuum Chamber Control
-
-```
-GET /vacuum_chamber/material
-POST /vacuum_chamber/material
-Content-Type: text/plain
-
-H
-```
-
-```
-POST /vacuum_chamber/start    # Start deposition
-POST /vacuum_chamber/stop     # Stop deposition
-GET /vacuum_chamber/status    # Get current status
-```
-
-## Log File Format
-
-For playback mode, log files use ISO8601 timestamps:
-
-```
-2025-01-15T10:30:00.000 SERIES1 = [1000000 1000100 1000050 1000075]
-2025-01-15T10:30:00.040 SERIES2 = [8000000 8000200 8000100 8000150]
-2025-01-15T10:30:00.080 SERIES3 = [4000000 4000100 4000050 4000075]
+2025-01-15T10:30:00.000 SERIES1 = [1000000 1000100 1000050]
+2025-01-15T10:30:00.040 SERIES2 = [8000000 8000200 8000100]
+2025-01-15T10:30:00.080 SERIES3 = [4000000 4000100 4000050]
 2025-01-15T10:30:00.100 END_CYCLE
 ```
 
-- **SERIES1**: Dark measurement (light blocked)
-- **SERIES2**: Full measurement (100% light)
-- **SERIES3**: Sample measurement (through sample)
-- **END_CYCLE**: Marks end of measurement cycle
-
-Timestamps control playback timing - the service calculates delays based on timestamp differences divided by the speed multiplier.
-
-Supported timestamp formats:
-- `2025-01-15T10:30:00.123` (milliseconds)
-- `2025-01-15T10:30:00.123456` (microseconds)
-- `2025-01-15T10:30:00.123Z` (UTC timezone)
-- `2025-01-15T10:30:00.123+00:00` (timezone offset)
-
-## Data Processing
-
-### Measurement Cycle
-
-Each cycle consists of three series:
-1. **Dark** (SERIES1): Baseline with no light
-2. **Full** (SERIES2): Reference with full light
-3. **Sample** (SERIES3): Actual measurement through sample
-
-### Outlier Exclusion
-
-Grubbs' test iteratively removes statistical outliers from each series before averaging. This improves measurement accuracy by excluding anomalous readings.
-
-Disable with `--outlier-method none` if needed.
-
-### Calibration Formula
-
+**Raw serial capture** (e.g., PuTTY log):
 ```
-calibrated_value = (sample_mean - dark_mean) / (full_mean - dark_mean) * 100
+SERIES1 = 16777215 16777215 16777215
+SERIES2 = 0 213 7
+SERIES3 = 16777215 16777215 16777215
+GAIN=4
+FADC=500.00
+COUNT=3
+END_CYCLE
 ```
 
-Result is a percentage: 0% = fully opaque, 100% = fully transparent.
+Raw logs use `--cycle-interval` (default 100ms) for pacing since there are no timestamps.
 
-### Validation
+## Calibration Formula
 
-Measurements are validated to ensure:
-- `full > sample` (sample blocks some light)
-- `sample > dark` (sample transmits some light)
+```
+T% = (sample - dark) / (full - dark) × 100
+```
 
-Invalid measurements are logged but not sent to OptiMonitor.
+- **SERIES1** = dark (light blocked)
+- **SERIES2** = full (100% light reference)
+- **SERIES3** = sample (through material)
 
-## Testing
+The AD7793 reads higher ADC values for less light (dark ~14M, full ~300). The formula handles this correctly — both numerator and denominator are negative, so they cancel out.
 
-Run the test suite:
+## Web UI
+
+Available at `http://localhost:<port>` (default 8100).
+
+- **Transmittance chart** — live T% over time (last 300 cycles)
+- **Raw means chart** — dark (red), full (green), sample (blue) with clipping markers
+- **Settings controls** — GAIN, FADC, COUNT dropdowns with Save button
+- **Live values** — current T%, dark/full/sample means
+- **Clipping detection** — red CLIPPED badge when any ADC value hits 16,777,215
+
+## API Endpoints
+
+### Calibration/Settings
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | Calibration web UI |
+| GET | `/ws` | WebSocket for live data streaming |
+| GET | `/api/settings` | Current device settings |
+| POST | `/api/settings` | Update settings (sends to device + saves to TOML) |
+
+### OptiMonitor Integration
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/device/info` | Device capabilities |
+| POST | `/register` | Register with monitoring API |
+| GET/POST | `/control_wavelength` | Wavelength control |
+| GET/POST | `/vacuum_chamber/material` | Material setting |
+| POST | `/vacuum_chamber/start` | Start deposition |
+| POST | `/vacuum_chamber/stop` | Stop deposition |
+| GET | `/vacuum_chamber/status` | Chamber status |
+
+## Config Persistence
+
+Settings are saved to `calibration.toml` (configurable via `--calibration-config`):
+
+```toml
+[device_settings]
+gain = 2
+fadc = 250.0
+count = 4
+
+last_updated = "2026-03-23T12:00:00Z"
+```
+
+Priority: CLI args > calibration.toml > hardcoded defaults.
+
+## Building & Testing
 
 ```bash
-cargo test
+cargo build              # Debug build
+cargo build --release    # Release build
+cargo test               # 98 tests
+cargo clippy --tests     # Zero warnings
 ```
 
-93 tests cover:
-- Protocol parsing
-- Outlier exclusion (Grubbs' test)
-- Calibration calculations
-- Validation logic
-- API handlers
-- Configuration parsing
+### Prerequisites
 
-## Platform Notes
+- Rust 2024 edition
+- Linux: `libudev-dev` (`apt install libudev-dev` or `dnf install systemd-devel`)
 
-### Windows
+### Serial Port Access (Linux)
 
-- Serial ports use `COM1`, `COM2`, `COM3`, etc.
-- Use `--list-ports` to discover available ports
-- Install USB-to-serial drivers if needed (CH340, FTDI, etc.)
-
-### Linux
-
-- Serial ports are typically `/dev/ttyUSB0`, `/dev/ttyACM0`, etc.
-- User may need to be in `dialout` group for serial access:
-  ```bash
-  sudo usermod -a -G dialout $USER
-  # Log out and back in for changes to take effect
-  ```
-
-## Example Usage with OptiMonitor
-
-1. Start the spectrometer service:
-   ```bash
-   ./spectrometer-service --listen 8200 playback --file fixtures/sample_log.txt --speed 10.0 --loop-playback
-   ```
-
-2. In OptiMonitor, add a device pointing to `http://localhost:8200`
-
-3. The service will:
-   - Respond to device info requests
-   - Accept registration from OptiMonitor
-   - Process measurement cycles from the log file
-   - Send calibrated readings to OptiMonitor when registered
-
-## License
-
-Part of the monitoring_example project.
+```bash
+sudo usermod -a -G dialout $USER
+# Re-login for group change to take effect
+```
