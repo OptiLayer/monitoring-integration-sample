@@ -48,7 +48,7 @@ mod tests {
 
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use tokio::sync::broadcast;
+    use tokio::sync::{broadcast, mpsc};
     use tower::util::ServiceExt;
 
     use super::*;
@@ -57,10 +57,12 @@ mod tests {
 
     fn test_app_state() -> AppState {
         let (tx, _) = broadcast::channel(16);
+        let (cmd_tx, _) = mpsc::channel(16);
         AppState {
             device: create_shared_state(),
             config: create_shared_config(PathBuf::from("/tmp/test_cfg.toml")),
             broadcast_tx: tx,
+            device_cmd_tx: cmd_tx,
         }
     }
 

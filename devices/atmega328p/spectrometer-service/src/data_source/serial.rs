@@ -20,6 +20,8 @@ pub struct SerialDataSource {
     count: u8,
     is_active: Arc<AtomicBool>,
     reader_task: Option<JoinHandle<()>>,
+    /// Channel for sending commands to the device while running
+    cmd_tx: Option<mpsc::Sender<String>>,
 }
 
 impl SerialDataSource {
@@ -32,12 +34,36 @@ impl SerialDataSource {
             count,
             is_active: Arc::new(AtomicBool::new(false)),
             reader_task: None,
+            cmd_tx: None,
         }
     }
 
     /// List available serial ports (helper for CLI)
     pub fn list_available_ports() -> Result<Vec<serialport::SerialPortInfo>, SpectrometerError> {
         serialport::available_ports().map_err(SpectrometerError::SerialPort)
+    }
+
+    /// Send initial configuration commands on the port
+    fn send_initial_config(
+        port: &mut dyn serialport::SerialPort,
+        gain: u8,
+        fadc: f32,
+        count: u8,
+    ) -> Result<(), SpectrometerError> {
+        tracing::info!("Configuring device: GAIN={gain}, FADC={fadc}, COUNT={count}");
+
+        for cmd in [
+            format!("GAIN={gain}\n"),
+            format!("FADC={fadc}\n"),
+            format!("COUNT={count}\n"),
+        ] {
+            port.write_all(cmd.as_bytes())?;
+            port.flush()?;
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        tracing::info!("Device configuration sent");
+        Ok(())
     }
 }
 
@@ -48,45 +74,21 @@ impl DataSource for SerialDataSource {
             .timeout(Duration::from_millis(100))
             .open()?;
 
-        // Send configuration commands before starting reader
-        let gain = self.gain;
-        let fadc = self.fadc;
-        let count = self.count;
+        // Send initial configuration
+        Self::send_initial_config(port.as_mut(), self.gain, self.fadc, self.count)?;
 
-        tracing::info!(
-            "Configuring device: GAIN={}, FADC={}, COUNT={}",
-            gain,
-            fadc,
-            count
-        );
-
-        // Send GAIN command
-        let cmd = format!("GAIN={}\n", gain);
-        port.write_all(cmd.as_bytes())?;
-        port.flush()?;
-        std::thread::sleep(Duration::from_millis(50));
-
-        // Send FADC command
-        let cmd = format!("FADC={}\n", fadc);
-        port.write_all(cmd.as_bytes())?;
-        port.flush()?;
-        std::thread::sleep(Duration::from_millis(50));
-
-        // Send COUNT command
-        let cmd = format!("COUNT={}\n", count);
-        port.write_all(cmd.as_bytes())?;
-        port.flush()?;
-        std::thread::sleep(Duration::from_millis(50));
-
-        tracing::info!("Device configuration sent");
+        // Clone port for writing commands while reader owns the original
+        let mut write_port = port.try_clone()?;
 
         let (cycle_tx, cycle_rx) = mpsc::channel(32);
+        let (cmd_tx, mut cmd_rx) = mpsc::channel::<String>(16);
 
         self.is_active.store(true, Ordering::SeqCst);
+        self.cmd_tx = Some(cmd_tx);
         let is_active = self.is_active.clone();
         let port_name = self.port_name.clone();
 
-        // Spawn blocking reader task
+        // Spawn blocking reader + command writer task
         let reader_handle = tokio::task::spawn_blocking(move || {
             let mut reader = BufReader::new(port);
             let mut accumulator = CycleAccumulator::new();
@@ -95,6 +97,15 @@ impl DataSource for SerialDataSource {
             tracing::info!("Serial reader started on {}", port_name);
 
             while is_active.load(Ordering::SeqCst) {
+                // Check for pending commands (non-blocking)
+                while let Ok(cmd) = cmd_rx.try_recv() {
+                    tracing::info!("Sending command: {}", cmd.trim());
+                    if let Err(e) = write_port.write_all(cmd.as_bytes()) {
+                        tracing::error!("Failed to send command: {e}");
+                    }
+                    let _ = write_port.flush();
+                }
+
                 line_buf.clear();
                 match reader.read_line(&mut line_buf) {
                     Ok(0) => continue,
@@ -111,7 +122,7 @@ impl DataSource for SerialDataSource {
                         continue;
                     }
                     Err(e) => {
-                        tracing::error!("Serial read error: {}", e);
+                        tracing::error!("Serial read error: {e}");
                         break;
                     }
                 }
@@ -121,19 +132,18 @@ impl DataSource for SerialDataSource {
         });
 
         self.reader_task = Some(reader_handle);
-
         Ok(cycle_rx)
     }
 
     async fn stop(&mut self) -> Result<(), SpectrometerError> {
         self.is_active.store(false, Ordering::SeqCst);
+        self.cmd_tx = None;
 
         if let Some(handle) = self.reader_task.take() {
             let _ = handle.await;
         }
 
         tracing::info!("Serial data source stopped");
-
         Ok(())
     }
 
@@ -141,13 +151,22 @@ impl DataSource for SerialDataSource {
         self.is_active.load(Ordering::SeqCst)
     }
 
-    async fn send_command(&mut self, _command: &str) -> Result<(), SpectrometerError> {
-        // Configuration commands (GAIN, FADC, COUNT) are sent during start() before
-        // the reader task is spawned. After start(), the port is owned by the reader
-        // task and commands cannot be sent.
-        Err(SpectrometerError::DataSource(
-            "Commands can only be sent during initialization (before start)".into(),
-        ))
+    async fn send_command(&mut self, command: &str) -> Result<(), SpectrometerError> {
+        let Some(tx) = &self.cmd_tx else {
+            return Err(SpectrometerError::DataSource(
+                "Data source not started".into(),
+            ));
+        };
+
+        let cmd = if command.ends_with('\n') {
+            command.to_string()
+        } else {
+            format!("{command}\n")
+        };
+
+        tx.send(cmd)
+            .await
+            .map_err(|_| SpectrometerError::DataSource("Command channel closed".into()))
     }
 
     fn name(&self) -> &str {
@@ -161,7 +180,6 @@ mod tests {
 
     #[test]
     fn test_serial_data_source_creation_windows_style() {
-        // Windows-style port name with default config (GAIN=2, FADC=250, COUNT=4)
         let source = SerialDataSource::new("COM3".to_string(), 38400, 2, 250.0, 4);
         assert_eq!(source.port_name, "COM3");
         assert_eq!(source.baud_rate, 38400);
@@ -169,14 +187,13 @@ mod tests {
         assert_eq!(source.fadc, 250.0);
         assert_eq!(source.count, 4);
         assert!(!source.is_active());
+        assert!(source.cmd_tx.is_none());
     }
 
     #[test]
     fn test_serial_data_source_creation_linux_style() {
-        // Linux-style port name with custom config
         let source = SerialDataSource::new("/dev/ttyUSB0".to_string(), 38400, 8, 500.0, 7);
         assert_eq!(source.port_name, "/dev/ttyUSB0");
-        assert_eq!(source.baud_rate, 38400);
         assert_eq!(source.gain, 8);
         assert_eq!(source.fadc, 500.0);
         assert_eq!(source.count, 7);
@@ -185,8 +202,6 @@ mod tests {
 
     #[test]
     fn test_list_ports_doesnt_panic() {
-        // Just verify it doesn't panic - actual ports depend on system
-        // Returns COM ports on Windows, /dev/tty* on Linux
         let _ = SerialDataSource::list_available_ports();
     }
 }

@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use clap::Parser;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -65,11 +65,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create broadcast channel for WebSocket
     let (broadcast_tx, _) = broadcast::channel(256);
 
+    // Create device command channel (UI -> data source)
+    let (device_cmd_tx, mut device_cmd_rx) = mpsc::channel::<String>(16);
+
     // Composite app state
     let app_state = AppState {
         device: device_state.clone(),
         config: device_config,
         broadcast_tx: broadcast_tx.clone(),
+        device_cmd_tx,
     };
 
     // Create data source
@@ -83,6 +87,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Start data source and get cycle receiver
     let cycle_rx = data_source.start().await?;
+
+    // Spawn command forwarding task (forwards UI commands to data source)
+    let cmd_handle = tokio::spawn(async move {
+        while let Some(cmd) = device_cmd_rx.recv().await {
+            if let Err(e) = data_source.send_command(&cmd).await {
+                tracing::warn!("Device command '{cmd}' failed: {e}");
+            }
+        }
+        // When cmd channel closes, stop the data source
+        let _ = data_source.stop().await;
+    });
 
     // Create and spawn data processing loop
     let processing_loop = DataProcessingLoop::new(device_state, broadcast_tx, outlier_excluder);
@@ -109,8 +124,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Cleanup
     tracing::info!("Shutting down...");
-    data_source.stop().await?;
     processing_handle.abort();
+    cmd_handle.abort();
 
     Ok(())
 }

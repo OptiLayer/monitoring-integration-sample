@@ -35,7 +35,7 @@ pub async fn set_control_wavelength(
 mod tests {
     use std::path::PathBuf;
 
-    use tokio::sync::broadcast;
+    use tokio::sync::{broadcast, mpsc};
 
     use super::*;
     use crate::service::calibration::create_shared_config;
@@ -43,10 +43,12 @@ mod tests {
 
     fn test_state() -> AppState {
         let (tx, _) = broadcast::channel(16);
+        let (cmd_tx, _) = mpsc::channel(16);
         AppState {
             device: create_shared_state(),
             config: create_shared_config(PathBuf::from("/tmp/test_cfg.toml")),
             broadcast_tx: tx,
+            device_cmd_tx: cmd_tx,
         }
     }
 

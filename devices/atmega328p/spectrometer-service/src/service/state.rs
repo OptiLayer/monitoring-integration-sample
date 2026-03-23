@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{RwLock, broadcast, mpsc};
 
 use crate::protocol::ProcessedMeasurement;
 use crate::service::calibration::SharedConfig;
@@ -56,6 +56,18 @@ pub struct AppState {
     pub device: SharedState,
     pub config: SharedConfig,
     pub broadcast_tx: broadcast::Sender<serde_json::Value>,
+    /// Channel for sending commands to the device (GAIN=, FADC=, COUNT=)
+    pub device_cmd_tx: mpsc::Sender<String>,
+}
+
+impl AppState {
+    /// Send a device command (e.g., "GAIN=4")
+    pub async fn send_device_command(&self, cmd: &str) -> Result<(), String> {
+        self.device_cmd_tx
+            .send(cmd.to_string())
+            .await
+            .map_err(|_| "Device command channel closed".to_string())
+    }
 }
 
 #[cfg(test)]

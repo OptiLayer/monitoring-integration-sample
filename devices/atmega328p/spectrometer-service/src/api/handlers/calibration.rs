@@ -27,6 +27,18 @@ pub async fn update_settings(
     State(state): State<AppState>,
     Json(req): Json<UpdateSettingsRequest>,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    // Send commands to device
+    for cmd in [
+        format!("GAIN={}", req.gain),
+        format!("FADC={}", req.fadc),
+        format!("COUNT={}", req.count),
+    ] {
+        if let Err(e) = state.send_device_command(&cmd).await {
+            tracing::warn!("Failed to send device command '{cmd}': {e}");
+        }
+    }
+
+    // Save to config file
     let mut cfg = state.config.write().await;
     cfg.update_settings(req.gain, req.fadc, req.count);
 
@@ -48,7 +60,7 @@ pub async fn update_settings(
     (
         StatusCode::OK,
         Json(serde_json::json!({
-            "status": "saved",
+            "status": "applied",
             "gain": req.gain,
             "fadc": req.fadc,
             "count": req.count,
