@@ -57,17 +57,17 @@ pub struct SerialArgs {
     #[arg(short, long, default_value = "38400")]
     pub baud: u32,
 
-    /// ADC gain setting (1, 2, 4, 8, 16, 32, 64, 128)
-    #[arg(long, default_value = "2")]
-    pub gain: u8,
+    /// ADC gain setting (1, 2, 4, 8, 16, 32, 64, 128). Overrides saved config.
+    #[arg(long)]
+    pub gain: Option<u8>,
 
-    /// ADC sample rate in Hz (500, 250, 125, 62.5, 50, 39.2, 33.3, 19.6, 16.7, 12.5, 10, 8.33, 6.25, 4.17)
-    #[arg(long, default_value = "250")]
-    pub fadc: f32,
+    /// ADC sample rate in Hz. Overrides saved config.
+    #[arg(long)]
+    pub fadc: Option<f32>,
 
-    /// Number of measurements per series (1-12)
-    #[arg(long, default_value = "4")]
-    pub count: u8,
+    /// Number of measurements per series (1-12). Overrides saved config.
+    #[arg(long)]
+    pub count: Option<u8>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -99,15 +99,19 @@ pub enum OutlierMethodArg {
 }
 
 impl Cli {
-    /// Convert CLI args to DataSourceConfig
-    pub fn to_data_source_config(&self) -> Option<DataSourceConfig> {
+    /// Convert CLI args to DataSourceConfig.
+    /// For serial mode, CLI args override saved config; saved config overrides hardcoded defaults.
+    pub fn to_data_source_config(
+        &self,
+        saved: &crate::service::calibration::DeviceSettings,
+    ) -> Option<DataSourceConfig> {
         match &self.mode {
             Some(Mode::Serial(args)) => Some(DataSourceConfig::Serial {
                 port: args.device.clone(),
                 baud_rate: args.baud,
-                gain: args.gain,
-                fadc: args.fadc,
-                count: args.count,
+                gain: args.gain.unwrap_or(saved.gain),
+                fadc: args.fadc.unwrap_or(saved.fadc),
+                count: args.count.unwrap_or(saved.count),
             }),
             Some(Mode::Playback(args)) => Some(DataSourceConfig::Playback {
                 log_file: args.file.clone(),
@@ -202,7 +206,9 @@ mod tests {
     }
 
     #[test]
-    fn test_to_data_source_config() {
+    fn test_to_data_source_config_with_cli_overrides() {
+        use crate::service::calibration::DeviceSettings;
+
         let cli = Cli::parse_from([
             "spectrometer-service",
             "serial",
@@ -218,7 +224,8 @@ mod tests {
             "7",
         ]);
 
-        let config = cli.to_data_source_config();
+        let saved = DeviceSettings::default(); // gain=2, fadc=250, count=4
+        let config = cli.to_data_source_config(&saved);
         assert!(config.is_some());
 
         if let Some(DataSourceConfig::Serial {
@@ -231,9 +238,36 @@ mod tests {
         {
             assert_eq!(port, "/dev/ttyUSB0");
             assert_eq!(baud_rate, 115200);
+            // CLI overrides saved config
             assert_eq!(gain, 8);
             assert_eq!(fadc, 500.0);
             assert_eq!(count, 7);
+        } else {
+            panic!("Expected Serial config");
+        }
+    }
+
+    #[test]
+    fn test_to_data_source_config_falls_back_to_saved() {
+        use crate::service::calibration::DeviceSettings;
+
+        let cli = Cli::parse_from(["spectrometer-service", "serial", "--device", "/dev/ttyUSB0"]);
+
+        let saved = DeviceSettings {
+            gain: 4,
+            fadc: 500.0,
+            count: 3,
+        };
+        let config = cli.to_data_source_config(&saved);
+
+        if let Some(DataSourceConfig::Serial {
+            gain, fadc, count, ..
+        }) = config
+        {
+            // Falls back to saved config values
+            assert_eq!(gain, 4);
+            assert_eq!(fadc, 500.0);
+            assert_eq!(count, 3);
         } else {
             panic!("Expected Serial config");
         }

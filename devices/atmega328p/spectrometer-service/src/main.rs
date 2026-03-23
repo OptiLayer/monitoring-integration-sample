@@ -43,8 +43,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Load saved device config (before creating data source)
+    let device_config = create_shared_config(cli.calibration_config.clone());
+    let saved_settings = {
+        let cfg = device_config.blocking_read();
+        cfg.config.device_settings.clone()
+    };
+
     // Require a mode if not listing ports
-    let Some(data_source_config) = cli.to_data_source_config() else {
+    let Some(data_source_config) = cli.to_data_source_config(&saved_settings) else {
         eprintln!("Error: Please specify a mode (serial or playback)");
         eprintln!("Use --help for usage information");
         std::process::exit(1);
@@ -58,9 +65,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create shared state
     let device_state = create_shared_state();
-
-    // Create device config (loads from file if exists)
-    let device_config = create_shared_config(cli.calibration_config.clone());
 
     // Create broadcast channel for WebSocket
     let (broadcast_tx, _) = broadcast::channel(256);
