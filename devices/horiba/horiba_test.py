@@ -1,23 +1,27 @@
-"""HORIBA iHR320 + CCD integration test script.
+"""HORIBA Monochromator + CCD integration test script.
 
-Tests all functionality needed for OptiMonitor spectrometer support:
-1. Connect to ICL, discover devices
+Supports any HORIBA monochromator + CCD detector connected via ICL,
+including iHR320, iHR550, and other models discoverable by the SDK.
+
+Tests all functionality needed for OptiMonitor broadband spectrometer support:
+1. Connect to ICL, discover and list all devices with capabilities
 2. Initialize monochromator and CCD
-3. Read device configuration (chip size, gratings, etc.)
+3. Read full device configuration (model, chip size, gratings, gains, speeds)
 4. Set wavelength, grating, slits
-5. Acquire single spectrum
+5. Acquire single spectrum (broadband CCD)
 6. Acquire dark frame (shutter closed)
 7. Acquire series of spectra (continuous monitoring simulation)
-8. Range scan across wavelength range
+8. MultiAcq hardware-level series
+9. Grating switch test (optional)
 
 Prerequisites:
-  - HORIBA SDK with ICL.exe installed, licensed, and activated
-  - pip install horiba-sdk
+  - HORIBA ICL.exe installed, licensed, and running
+  - pip install horiba-sdk numpy
 
 Usage:
-  python horiba_ihr320_test.py [--icl-ip 127.0.0.1] [--icl-port 25010]
-                               [--no-start-icl] [--wavelength 500]
-                               [--exposure 1000] [--series-count 5]
+  horiba-test.exe [--icl-ip 127.0.0.1] [--icl-port 25010]
+                  [--start-icl] [--wavelength 500]
+                  [--exposure 1000] [--series-count 5]
 """
 
 from __future__ import annotations
@@ -135,14 +139,18 @@ async def test_connect_and_discover(args: argparse.Namespace) -> DeviceManager:
     )
     await dm.start()
 
-    n_mono = len(dm.monochromators)
-    n_ccd = len(dm.charge_coupled_devices)
-    print(f"  Monochromators found: {n_mono}")
-    print(f"  CCDs found:          {n_ccd}")
+    monos = dm.monochromators
+    ccds = dm.charge_coupled_devices
+    print(f"  Monochromators found: {len(monos)}")
+    for i, m in enumerate(monos):
+        print(f"    [{i}] id={m.id()}, type={type(m).__name__}")
+    print(f"  CCDs found:          {len(ccds)}")
+    for i, c in enumerate(ccds):
+        print(f"    [{i}] id={c.id()}, type={type(c).__name__}")
 
-    if n_mono == 0:
+    if len(monos) == 0:
         raise RuntimeError("No monochromator found. Check USB connection and ICL.")
-    if n_ccd == 0:
+    if len(ccds) == 0:
         raise RuntimeError("No CCD found. Check USB connection and ICL.")
 
     return dm
@@ -163,12 +171,22 @@ async def test_initialize_mono(mono: Monochromator) -> dict:
     print("  Monochromator initialized")
 
     config = await mono.configuration()
-    print(f"  Configuration: {config}")
+    print("  Configuration:")
+    for key, val in config.items():
+        print(f"    {key}: {val}")
 
     wl = await mono.get_current_wavelength()
     grating = await mono.get_turret_grating()
     print(f"  Current wavelength: {wl:.2f} nm")
     print(f"  Current grating:    {grating}")
+
+    # List available gratings
+    print("  Available gratings:")
+    for g in Monochromator.Grating:
+        try:
+            print(f"    {g.name}: {g.value}")
+        except Exception:
+            pass
 
     # Read slit positions
     for slit in [Monochromator.Slit.A, Monochromator.Slit.B]:
@@ -207,15 +225,11 @@ async def test_initialize_ccd(ccd: ChargeCoupledDevice) -> tuple[int, int]:
     chip_size = await ccd.get_chip_size()
     temperature = await ccd.get_chip_temperature()
 
-    print(f"  Chip size:       {chip_size.width} x {chip_size.height} pixels")
+    print(f"  Chip size:        {chip_size.width} x {chip_size.height} pixels")
     print(f"  Chip temperature: {temperature:.1f} C")
-    print(f"  Configuration keys: {list(config.keys())}")
-
-    # Print available gains and speeds
-    if "gains" in config:
-        print(f"  Available gains:  {config['gains']}")
-    if "speeds" in config:
-        print(f"  Available speeds: {config['speeds']}")
+    print("  Configuration:")
+    for key, val in config.items():
+        print(f"    {key}: {val}")
 
     current_gain = await ccd.get_gain_token()
     current_speed = await ccd.get_speed_token()
@@ -594,7 +608,7 @@ async def run_all_tests(args: argparse.Namespace) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="HORIBA iHR320 + CCD integration test for OptiMonitor",
+        description="HORIBA Monochromator + CCD integration test for OptiMonitor (iHR320, iHR550, etc.)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--icl-ip", default="127.0.0.1", help="ICL WebSocket IP")
