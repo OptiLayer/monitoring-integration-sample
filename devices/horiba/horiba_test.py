@@ -632,7 +632,17 @@ def main():
     )
 
     args = parser.parse_args()
-    asyncio.run(run_all_tests(args))
+
+    try:
+        asyncio.run(run_all_tests(args))
+    except ConnectionRefusedError:
+        print(f"\nERROR: Cannot connect to ICL at {args.icl_ip}:{args.icl_port}")
+        print("Make sure ICL.exe is running, or use --start-icl to auto-start it.")
+    except KeyboardInterrupt:
+        print("\nInterrupted by user.")
+    except Exception as e:
+        print(f"\nERROR: {e}")
+        raise
 
 
 if __name__ == "__main__":
