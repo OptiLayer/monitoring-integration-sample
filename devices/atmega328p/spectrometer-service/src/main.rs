@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load saved device config (before creating data source)
     let device_config = create_shared_config(cli.calibration_config.clone());
     let saved_settings = {
-        let cfg = device_config.blocking_read();
+        let cfg = device_config.read().await;
         cfg.config.device_settings.clone()
     };
 
