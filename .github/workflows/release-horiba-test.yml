@@ -24,7 +24,7 @@ jobs:
 
       - name: Bundle horiba_test.py
         working-directory: devices/horiba
-        run: uv run pyinstaller --onefile --name horiba-test-${{ github.ref_name }} horiba_test.py
+        run: uv run pyinstaller --onefile --collect-data horiba_sdk --name horiba-test-${{ github.ref_name }} horiba_test.py
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
