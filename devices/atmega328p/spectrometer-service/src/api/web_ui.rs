@@ -46,14 +46,14 @@ canvas { width: 100%; height: 100%; display: block; }
   <div class="section">
     <h2>Device Settings</h2>
     <label class="stat-label" for="sel-gain">GAIN</label>
-    <select id="sel-gain">
+    <select id="sel-gain" onchange="saveSettings()">
       <option value="1">1</option><option value="2" selected>2</option>
       <option value="4">4</option><option value="8">8</option>
       <option value="16">16</option><option value="32">32</option>
       <option value="64">64</option><option value="128">128</option>
     </select>
     <label class="stat-label" for="sel-fadc">FADC (Hz)</label>
-    <select id="sel-fadc">
+    <select id="sel-fadc" onchange="saveSettings()">
       <option value="500">500</option><option value="250" selected>250</option>
       <option value="125">125</option><option value="62.5">62.5</option>
       <option value="50">50</option><option value="39.2">39.2</option>
@@ -63,7 +63,7 @@ canvas { width: 100%; height: 100%; display: block; }
       <option value="6.25">6.25</option><option value="4.17">4.17</option>
     </select>
     <label class="stat-label" for="sel-count">COUNT</label>
-    <select id="sel-count">
+    <select id="sel-count" onchange="saveSettings()">
       <option value="1">1</option><option value="2">2</option>
       <option value="3">3</option><option value="4" selected>4</option>
       <option value="5">5</option><option value="6">6</option>
