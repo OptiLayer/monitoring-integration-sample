@@ -44,7 +44,6 @@ pub fn create_router(state: AppState) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
 
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
@@ -55,20 +54,22 @@ mod tests {
     use crate::service::calibration::create_shared_config;
     use crate::service::state::create_shared_state;
 
-    fn test_app_state() -> AppState {
+    fn test_app_state() -> (AppState, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
         let (tx, _) = broadcast::channel(16);
         let (cmd_tx, _) = mpsc::channel(16);
-        AppState {
+        let state = AppState {
             device: create_shared_state(),
-            config: create_shared_config(PathBuf::from("/tmp/test_cfg.toml")),
+            config: create_shared_config(dir.path().join("cfg.toml")),
             broadcast_tx: tx,
             device_cmd_tx: cmd_tx,
-        }
+        };
+        (state, dir)
     }
 
     #[tokio::test]
     async fn test_device_info_route() {
-        let app = create_router(test_app_state());
+        let app = create_router(test_app_state().0);
         let response = app
             .oneshot(
                 Request::builder()
@@ -83,7 +84,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_settings_get() {
-        let app = create_router(test_app_state());
+        let app = create_router(test_app_state().0);
         let response = app
             .oneshot(
                 Request::builder()
@@ -98,7 +99,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_web_ui_route() {
-        let app = create_router(test_app_state());
+        let app = create_router(test_app_state().0);
         let response = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
             .await

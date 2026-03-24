@@ -3,15 +3,22 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use serde::Deserialize;
 
+use crate::service::calibration::SeriesMapping;
 use crate::service::state::AppState;
 
 pub async fn get_settings(State(state): State<AppState>) -> Json<serde_json::Value> {
     let cfg = state.config.read().await;
+    let s = &cfg.config.device_settings;
 
     Json(serde_json::json!({
-        "gain": cfg.config.device_settings.gain,
-        "fadc": cfg.config.device_settings.fadc,
-        "count": cfg.config.device_settings.count,
+        "gain": s.gain,
+        "fadc": s.fadc,
+        "count": s.count,
+        "series_mapping": {
+            "dark": s.series_mapping.dark,
+            "full": s.series_mapping.full,
+            "sample": s.series_mapping.sample,
+        },
         "last_updated": cfg.config.last_updated.to_rfc3339(),
     }))
 }
@@ -21,6 +28,15 @@ pub struct UpdateSettingsRequest {
     pub gain: u8,
     pub fadc: f32,
     pub count: u8,
+    #[serde(default)]
+    pub series_mapping: Option<SeriesMappingRequest>,
+}
+
+#[derive(Deserialize)]
+pub struct SeriesMappingRequest {
+    pub dark: u8,
+    pub full: u8,
+    pub sample: u8,
 }
 
 pub async fn update_settings(
@@ -42,6 +58,14 @@ pub async fn update_settings(
     let mut cfg = state.config.write().await;
     cfg.update_settings(req.gain, req.fadc, req.count);
 
+    if let Some(m) = &req.series_mapping {
+        cfg.config.device_settings.series_mapping = SeriesMapping {
+            dark: m.dark,
+            full: m.full,
+            sample: m.sample,
+        };
+    }
+
     if let Err(e) = cfg.save() {
         tracing::error!("Failed to save config: {e}");
         return (
@@ -50,11 +74,17 @@ pub async fn update_settings(
         );
     }
 
+    let mapping = &cfg.config.device_settings.series_mapping;
     let _ = state.broadcast_tx.send(serde_json::json!({
         "type": "settings_updated",
         "gain": req.gain,
         "fadc": req.fadc,
         "count": req.count,
+        "series_mapping": {
+            "dark": mapping.dark,
+            "full": mapping.full,
+            "sample": mapping.sample,
+        },
     }));
 
     (

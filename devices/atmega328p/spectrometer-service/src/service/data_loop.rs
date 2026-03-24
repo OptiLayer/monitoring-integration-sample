@@ -7,12 +7,13 @@ use crate::monitoring::MonitoringClient;
 use crate::processing::calibration::{CalibrationProcessor, mean};
 use crate::processing::outlier::OutlierExcluder;
 use crate::protocol::{MeasurementCycle, ProcessedMeasurement};
-use crate::service::calibration::MAX_ADC_VALUE;
+use crate::service::calibration::{MAX_ADC_VALUE, SeriesMapping, SharedConfig};
 use crate::service::state::SharedState;
 
 /// Background data processing loop
 pub struct DataProcessingLoop {
     state: SharedState,
+    config: SharedConfig,
     broadcast_tx: broadcast::Sender<serde_json::Value>,
     outlier_excluder: Arc<dyn OutlierExcluder>,
     monitoring_client: MonitoringClient,
@@ -22,16 +23,35 @@ pub struct DataProcessingLoop {
 impl DataProcessingLoop {
     pub fn new(
         state: SharedState,
+        config: SharedConfig,
         broadcast_tx: broadcast::Sender<serde_json::Value>,
         outlier_excluder: Box<dyn OutlierExcluder>,
     ) -> Self {
         Self {
             state,
+            config,
             broadcast_tx,
             outlier_excluder: Arc::from(outlier_excluder),
             monitoring_client: MonitoringClient::new(),
             calibrator: CalibrationProcessor::new(),
         }
+    }
+
+    /// Remap series based on configured mapping.
+    /// The parser always puts SERIES1→dark, SERIES2→full, SERIES3→sample,
+    /// but the physical order may differ.
+    fn remap_cycle(&self, cycle: &MeasurementCycle, mapping: &SeriesMapping) -> MeasurementCycle {
+        // Raw series from parser: index 1=dark, 2=full, 3=sample
+        let series = [&cycle.dark, &cycle.full, &cycle.sample];
+
+        let get = |n: u8| series[(n - 1).min(2) as usize].clone();
+
+        MeasurementCycle::with_timestamp(
+            cycle.timestamp,
+            get(mapping.dark),
+            get(mapping.full),
+            get(mapping.sample),
+        )
     }
 
     /// Run the processing loop, receiving cycles from the channel
@@ -42,6 +62,13 @@ impl DataProcessingLoop {
         tracing::info!("Data processing loop started");
 
         while let Some(cycle) = cycle_rx.recv().await {
+            // Remap series based on config
+            let mapping = {
+                let cfg = self.config.read().await;
+                cfg.config.device_settings.series_mapping.clone()
+            };
+            let cycle = self.remap_cycle(&cycle, &mapping);
+
             let processed = self.process_cycle(&cycle);
             let is_clipped = self.check_clipping(&cycle);
 
@@ -158,24 +185,28 @@ impl DataProcessingLoop {
 
 #[cfg(test)]
 mod tests {
+
     use chrono::Utc;
     use tokio::sync::broadcast;
 
     use super::*;
     use crate::processing::outlier::grubbs::GrubbsExcluder;
     use crate::protocol::SeriesData;
+    use crate::service::calibration::create_shared_config;
     use crate::service::state::create_shared_state;
 
-    fn test_loop() -> DataProcessingLoop {
+    fn test_loop() -> (DataProcessingLoop, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
         let state = create_shared_state();
+        let config = create_shared_config(dir.path().join("cfg.toml"));
         let (tx, _) = broadcast::channel(16);
         let excluder = Box::new(GrubbsExcluder::new(0.05));
-        DataProcessingLoop::new(state, tx, excluder)
+        (DataProcessingLoop::new(state, config, tx, excluder), dir)
     }
 
     #[test]
     fn test_process_cycle_valid() {
-        let lp = test_loop();
+        let (lp, _dir) = test_loop();
         let cycle = MeasurementCycle::with_timestamp(
             Utc::now(),
             SeriesData::new(vec![100, 101, 102]),
@@ -188,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_process_cycle_inverted_adc() {
-        let lp = test_loop();
+        let (lp, _dir) = test_loop();
         let cycle = MeasurementCycle::with_timestamp(
             Utc::now(),
             SeriesData::new(vec![14_000_000, 14_000_100, 14_000_050]),
@@ -201,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_check_clipping() {
-        let lp = test_loop();
+        let (lp, _dir) = test_loop();
 
         let clipped = MeasurementCycle::with_timestamp(
             Utc::now(),

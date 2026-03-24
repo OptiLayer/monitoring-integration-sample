@@ -257,6 +257,7 @@ mod tests {
             gain: 4,
             fadc: 500.0,
             count: 3,
+            ..DeviceSettings::default()
         };
         let config = cli.to_data_source_config(&saved);
 

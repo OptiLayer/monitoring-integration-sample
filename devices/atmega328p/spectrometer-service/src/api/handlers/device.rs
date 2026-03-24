@@ -46,7 +46,6 @@ pub async fn register(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
 
     use tokio::sync::{broadcast, mpsc};
 
@@ -54,15 +53,17 @@ mod tests {
     use crate::service::calibration::create_shared_config;
     use crate::service::state::create_shared_state;
 
-    fn test_state() -> AppState {
+    fn test_state() -> (AppState, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
         let (tx, _) = broadcast::channel(16);
         let (cmd_tx, _) = mpsc::channel(16);
-        AppState {
+        let state = AppState {
             device: create_shared_state(),
-            config: create_shared_config(PathBuf::from("/tmp/test_cfg.toml")),
+            config: create_shared_config(dir.path().join("cfg.toml")),
             broadcast_tx: tx,
             device_cmd_tx: cmd_tx,
-        }
+        };
+        (state, dir)
     }
 
     #[tokio::test]
@@ -77,7 +78,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register() {
-        let state = test_state();
+        let (state, _dir) = test_state();
 
         let request = RegisterRequest {
             monitoring_api_url: "http://localhost:8200".to_string(),

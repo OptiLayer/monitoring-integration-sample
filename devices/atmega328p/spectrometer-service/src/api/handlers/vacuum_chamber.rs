@@ -69,7 +69,6 @@ pub async fn get_status(State(state): State<AppState>) -> Json<VacuumChamberStat
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
 
     use tokio::sync::{broadcast, mpsc};
 
@@ -77,26 +76,29 @@ mod tests {
     use crate::service::calibration::create_shared_config;
     use crate::service::state::create_shared_state;
 
-    fn test_state() -> AppState {
+    fn test_state() -> (AppState, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
         let (tx, _) = broadcast::channel(16);
         let (cmd_tx, _) = mpsc::channel(16);
-        AppState {
+        let state = AppState {
             device: create_shared_state(),
-            config: create_shared_config(PathBuf::from("/tmp/test_cfg.toml")),
+            config: create_shared_config(dir.path().join("cfg.toml")),
             broadcast_tx: tx,
             device_cmd_tx: cmd_tx,
-        }
+        };
+        (state, dir)
     }
 
     #[tokio::test]
     async fn test_get_material() {
-        let response = get_material(State(test_state())).await;
+        let (state, _dir) = test_state();
+        let response = get_material(State(state)).await;
         assert_eq!(response.material, "H");
     }
 
     #[tokio::test]
     async fn test_set_material() {
-        let state = test_state();
+        let (state, _dir) = test_state();
         let response = set_material(State(state.clone()), "L".to_string()).await;
         assert_eq!(response.material, "L");
 
@@ -106,14 +108,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_material_json_string() {
-        let state = test_state();
+        let (state, _dir) = test_state();
         let response = set_material(State(state.clone()), "\"H\"".to_string()).await;
         assert_eq!(response.material, "H");
     }
 
     #[tokio::test]
     async fn test_start_stop_deposition() {
-        let state = test_state();
+        let (state, _dir) = test_state();
 
         let response = start_deposition(State(state.clone())).await;
         assert_eq!(response.status, "running");
@@ -134,7 +136,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_status() {
-        let state = test_state();
+        let (state, _dir) = test_state();
 
         let response = get_status(State(state.clone())).await;
         assert_eq!(response.status, "stopped");

@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Composite app state
     let app_state = AppState {
         device: device_state.clone(),
-        config: device_config,
+        config: device_config.clone(),
         broadcast_tx: broadcast_tx.clone(),
         device_cmd_tx,
     };
@@ -104,7 +104,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Create and spawn data processing loop
-    let processing_loop = DataProcessingLoop::new(device_state, broadcast_tx, outlier_excluder);
+    let processing_loop =
+        DataProcessingLoop::new(device_state, device_config, broadcast_tx, outlier_excluder);
 
     let processing_handle = tokio::spawn(async move {
         if let Err(e) = processing_loop.run(cycle_rx).await {

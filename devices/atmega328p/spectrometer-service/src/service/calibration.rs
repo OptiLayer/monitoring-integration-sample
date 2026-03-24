@@ -15,11 +15,34 @@ pub struct DeviceConfig {
     pub last_updated: DateTime<Utc>,
 }
 
+/// Which SERIES number (1-3) maps to each measurement channel
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeriesMapping {
+    /// SERIES number for dark measurement (default: 1)
+    pub dark: u8,
+    /// SERIES number for full/reference measurement (default: 2)
+    pub full: u8,
+    /// SERIES number for sample measurement (default: 3)
+    pub sample: u8,
+}
+
+impl Default for SeriesMapping {
+    fn default() -> Self {
+        Self {
+            dark: 1,
+            full: 2,
+            sample: 3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceSettings {
     pub gain: u8,
     pub fadc: f32,
     pub count: u8,
+    #[serde(default)]
+    pub series_mapping: SeriesMapping,
 }
 
 impl Default for DeviceSettings {
@@ -28,6 +51,7 @@ impl Default for DeviceSettings {
             gain: 2,
             fadc: 250.0,
             count: 4,
+            series_mapping: SeriesMapping::default(),
         }
     }
 }
@@ -86,7 +110,13 @@ impl ConfigRuntime {
     }
 
     pub fn update_settings(&mut self, gain: u8, fadc: f32, count: u8) {
-        self.config.device_settings = DeviceSettings { gain, fadc, count };
+        let mapping = self.config.device_settings.series_mapping.clone();
+        self.config.device_settings = DeviceSettings {
+            gain,
+            fadc,
+            count,
+            series_mapping: mapping,
+        };
         self.config.last_updated = Utc::now();
     }
 }

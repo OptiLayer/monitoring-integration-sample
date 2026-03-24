@@ -13,12 +13,18 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // Send init message with current device settings
     let init_msg = {
         let cfg = state.config.read().await;
+        let s = &cfg.config.device_settings;
         serde_json::json!({
             "type": "init",
             "device_settings": {
-                "gain": cfg.config.device_settings.gain,
-                "fadc": cfg.config.device_settings.fadc,
-                "count": cfg.config.device_settings.count,
+                "gain": s.gain,
+                "fadc": s.fadc,
+                "count": s.count,
+            },
+            "series_mapping": {
+                "dark": s.series_mapping.dark,
+                "full": s.series_mapping.full,
+                "sample": s.series_mapping.sample,
             }
         })
     };

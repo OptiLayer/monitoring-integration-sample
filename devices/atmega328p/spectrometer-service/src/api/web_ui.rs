@@ -71,8 +71,31 @@ canvas { width: 100%; height: 100%; display: block; }
       <option value="9">9</option><option value="10">10</option>
       <option value="11">11</option><option value="12">12</option>
     </select>
+  </div>
+
+  <div class="section">
+    <h2>Series Mapping</h2>
+    <div class="settings-note" style="margin-bottom:6px">Which SERIES is which channel?</div>
+    <label class="stat-label" for="map-dark">Dark</label>
+    <select id="map-dark">
+      <option value="1" selected>SERIES 1</option>
+      <option value="2">SERIES 2</option>
+      <option value="3">SERIES 3</option>
+    </select>
+    <label class="stat-label" for="map-full">Full (reference)</label>
+    <select id="map-full">
+      <option value="1">SERIES 1</option>
+      <option value="2" selected>SERIES 2</option>
+      <option value="3">SERIES 3</option>
+    </select>
+    <label class="stat-label" for="map-sample">Sample</label>
+    <select id="map-sample">
+      <option value="1">SERIES 1</option>
+      <option value="2">SERIES 2</option>
+      <option value="3" selected>SERIES 3</option>
+    </select>
     <button class="btn-save" onclick="saveSettings()">Save Settings</button>
-    <div class="settings-note">Settings apply on next device restart</div>
+    <div class="settings-note">GAIN/FADC/COUNT sent to device immediately. Mapping applies to processing.</div>
   </div>
 
   <div class="section">
@@ -132,6 +155,11 @@ function onInit(m) {
   el('sel-gain').value = m.device_settings.gain;
   el('sel-fadc').value = m.device_settings.fadc;
   el('sel-count').value = m.device_settings.count;
+  if (m.series_mapping) {
+    el('map-dark').value = m.series_mapping.dark;
+    el('map-full').value = m.series_mapping.full;
+    el('map-sample').value = m.series_mapping.sample;
+  }
 }
 
 function onCycle(m) {
@@ -160,6 +188,11 @@ function onSettingsUpdated(m) {
   el('sel-gain').value = m.gain;
   el('sel-fadc').value = m.fadc;
   el('sel-count').value = m.count;
+  if (m.series_mapping) {
+    el('map-dark').value = m.series_mapping.dark;
+    el('map-full').value = m.series_mapping.full;
+    el('map-sample').value = m.series_mapping.sample;
+  }
 }
 
 async function saveSettings() {
@@ -167,6 +200,11 @@ async function saveSettings() {
     gain: parseInt(el('sel-gain').value),
     fadc: parseFloat(el('sel-fadc').value),
     count: parseInt(el('sel-count').value),
+    series_mapping: {
+      dark: parseInt(el('map-dark').value),
+      full: parseInt(el('map-full').value),
+      sample: parseInt(el('map-sample').value),
+    },
   };
   await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
 }
