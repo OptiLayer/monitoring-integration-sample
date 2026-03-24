@@ -77,25 +77,25 @@ canvas { width: 100%; height: 100%; display: block; }
     <h2>Series Mapping</h2>
     <div class="settings-note" style="margin-bottom:6px">Which SERIES is which channel?</div>
     <label class="stat-label" for="map-dark">Dark</label>
-    <select id="map-dark">
+    <select id="map-dark" onchange="saveSettings()">
       <option value="1" selected>SERIES 1</option>
       <option value="2">SERIES 2</option>
       <option value="3">SERIES 3</option>
     </select>
     <label class="stat-label" for="map-full">Full (reference)</label>
-    <select id="map-full">
+    <select id="map-full" onchange="saveSettings()">
       <option value="1">SERIES 1</option>
       <option value="2" selected>SERIES 2</option>
       <option value="3">SERIES 3</option>
     </select>
     <label class="stat-label" for="map-sample">Sample</label>
-    <select id="map-sample">
+    <select id="map-sample" onchange="saveSettings()">
       <option value="1">SERIES 1</option>
       <option value="2">SERIES 2</option>
       <option value="3" selected>SERIES 3</option>
     </select>
     <button class="btn-save" onclick="saveSettings()">Save Settings</button>
-    <div class="settings-note">GAIN/FADC/COUNT sent to device immediately. Mapping applies to processing.</div>
+    <div class="settings-note">Mapping applies immediately. Save persists to disk.</div>
   </div>
 
   <div class="section">
