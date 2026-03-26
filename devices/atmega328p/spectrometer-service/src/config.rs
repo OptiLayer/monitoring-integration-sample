@@ -65,6 +65,10 @@ pub struct SerialArgs {
     #[arg(long)]
     pub fadc: Option<f32>,
 
+    /// Dump raw serial output to file for later playback
+    #[arg(long)]
+    pub log_file: Option<std::path::PathBuf>,
+
     /// Number of measurements per series (1-12). Overrides saved config.
     #[arg(long)]
     pub count: Option<u8>,
@@ -112,6 +116,7 @@ impl Cli {
                 gain: args.gain.unwrap_or(saved.gain),
                 fadc: args.fadc.unwrap_or(saved.fadc),
                 count: args.count.unwrap_or(saved.count),
+                log_file: args.log_file.clone(),
             }),
             Some(Mode::Playback(args)) => Some(DataSourceConfig::Playback {
                 log_file: args.file.clone(),
@@ -234,6 +239,7 @@ mod tests {
             gain,
             fadc,
             count,
+            ..
         }) = config
         {
             assert_eq!(port, "/dev/ttyUSB0");

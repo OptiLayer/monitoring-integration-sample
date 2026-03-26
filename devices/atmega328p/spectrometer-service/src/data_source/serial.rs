@@ -1,4 +1,6 @@
+use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -18,20 +20,28 @@ pub struct SerialDataSource {
     gain: u8,
     fadc: f32,
     count: u8,
+    log_file: Option<PathBuf>,
     is_active: Arc<AtomicBool>,
     reader_task: Option<JoinHandle<()>>,
-    /// Channel for sending commands to the device while running
     cmd_tx: Option<mpsc::Sender<String>>,
 }
 
 impl SerialDataSource {
-    pub fn new(port_name: String, baud_rate: u32, gain: u8, fadc: f32, count: u8) -> Self {
+    pub fn new(
+        port_name: String,
+        baud_rate: u32,
+        gain: u8,
+        fadc: f32,
+        count: u8,
+        log_file: Option<PathBuf>,
+    ) -> Self {
         Self {
             port_name,
             baud_rate,
             gain,
             fadc,
             count,
+            log_file,
             is_active: Arc::new(AtomicBool::new(false)),
             reader_task: None,
             cmd_tx: None,
@@ -87,12 +97,26 @@ impl DataSource for SerialDataSource {
         self.cmd_tx = Some(cmd_tx);
         let is_active = self.is_active.clone();
         let port_name = self.port_name.clone();
+        let log_file = self.log_file.clone();
 
         // Spawn blocking reader + command writer task
         let reader_handle = tokio::task::spawn_blocking(move || {
             let mut reader = BufReader::new(port);
             let mut accumulator = CycleAccumulator::new();
             let mut line_buf = String::new();
+
+            let mut log_writer = log_file.and_then(|path| {
+                match OpenOptions::new().create(true).append(true).open(&path) {
+                    Ok(f) => {
+                        tracing::info!("Logging serial output to {:?}", path);
+                        Some(std::io::BufWriter::new(f))
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to open log file {:?}: {e}", path);
+                        None
+                    }
+                }
+            });
 
             tracing::info!("Serial reader started on {}", port_name);
 
@@ -110,6 +134,10 @@ impl DataSource for SerialDataSource {
                 match reader.read_line(&mut line_buf) {
                     Ok(0) => continue,
                     Ok(_) => {
+                        if let Some(w) = &mut log_writer {
+                            let _ = w.write_all(line_buf.as_bytes());
+                            let _ = w.flush();
+                        }
                         let parsed = parse_line(&line_buf);
                         if let Some(cycle) = accumulator.process_line(parsed)
                             && cycle_tx.blocking_send(cycle).is_err()
@@ -180,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_serial_data_source_creation_windows_style() {
-        let source = SerialDataSource::new("COM3".to_string(), 38400, 2, 250.0, 4);
+        let source = SerialDataSource::new("COM3".to_string(), 38400, 2, 250.0, 4, None);
         assert_eq!(source.port_name, "COM3");
         assert_eq!(source.baud_rate, 38400);
         assert_eq!(source.gain, 2);
@@ -192,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_serial_data_source_creation_linux_style() {
-        let source = SerialDataSource::new("/dev/ttyUSB0".to_string(), 38400, 8, 500.0, 7);
+        let source = SerialDataSource::new("/dev/ttyUSB0".to_string(), 38400, 8, 500.0, 7, None);
         assert_eq!(source.port_name, "/dev/ttyUSB0");
         assert_eq!(source.gain, 8);
         assert_eq!(source.fadc, 500.0);

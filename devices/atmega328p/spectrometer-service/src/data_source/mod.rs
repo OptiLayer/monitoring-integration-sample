@@ -39,6 +39,7 @@ pub enum DataSourceConfig {
         gain: u8,
         fadc: f32,
         count: u8,
+        log_file: Option<PathBuf>,
     },
     /// Log file playback (supports both timestamped and raw log formats)
     Playback {
@@ -60,12 +61,14 @@ impl DataSourceConfig {
                 gain,
                 fadc,
                 count,
+                log_file,
             } => Box::new(serial::SerialDataSource::new(
                 port.clone(),
                 *baud_rate,
                 *gain,
                 *fadc,
                 *count,
+                log_file.clone(),
             )),
             DataSourceConfig::Playback {
                 log_file,
