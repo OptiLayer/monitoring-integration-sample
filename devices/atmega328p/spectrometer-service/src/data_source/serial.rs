@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -120,10 +121,19 @@ impl DataSource for SerialDataSource {
 
             tracing::info!("Serial reader started on {}", port_name);
 
+            let log_line = |w: &mut std::io::BufWriter<std::fs::File>, line: &str| {
+                let ts = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                let _ = writeln!(w, "{ts} {line}");
+                let _ = w.flush();
+            };
+
             while is_active.load(Ordering::SeqCst) {
                 // Check for pending commands (non-blocking)
                 while let Ok(cmd) = cmd_rx.try_recv() {
                     tracing::info!("Sending command: {}", cmd.trim());
+                    if let Some(w) = &mut log_writer {
+                        log_line(w, &format!("> {}", cmd.trim()));
+                    }
                     if let Err(e) = write_port.write_all(cmd.as_bytes()) {
                         tracing::error!("Failed to send command: {e}");
                     }
@@ -135,8 +145,7 @@ impl DataSource for SerialDataSource {
                     Ok(0) => continue,
                     Ok(_) => {
                         if let Some(w) = &mut log_writer {
-                            let _ = w.write_all(line_buf.as_bytes());
-                            let _ = w.flush();
+                            log_line(w, line_buf.trim_end());
                         }
                         let parsed = parse_line(&line_buf);
                         if let Some(cycle) = accumulator.process_line(parsed)
