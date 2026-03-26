@@ -22,13 +22,9 @@ use service::state::{AppState, create_shared_state};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize tracing with colors and stderr output
+    // Initialize tracing
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_ansi(true)
-                .with_writer(std::io::stderr),
-        )
+        .with(tracing_subscriber::fmt::layer().with_ansi(false))
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "spectrometer_service=info".into()),
