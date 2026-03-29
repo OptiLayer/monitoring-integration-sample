@@ -1,4 +1,4 @@
-last_updated = "2026-03-25T19:26:59.097361680Z"
+last_updated = "2026-03-29T06:09:22.992306338Z"
 
 [device_settings]
 gain = 8
@@ -6,6 +6,6 @@ fadc = 250.0
 count = 4
 
 [device_settings.series_mapping]
-dark = 1
-full = 3
-sample = 2
+dark = 3
+full = 2
+sample = 1

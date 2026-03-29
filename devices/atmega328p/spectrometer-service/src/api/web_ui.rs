@@ -37,6 +37,11 @@ canvas { width: 100%; height: 100%; display: block; }
 .formula { font-family: 'Courier New', monospace; font-size: 11px; color: #a0a0b0; background: #0f3460; padding: 8px; border-radius: 4px; margin-top: 8px; }
 #cycle-counter { font-family: 'Courier New', monospace; font-size: 12px; color: #a0a0b0; }
 .settings-note { font-size: 11px; color: #6b7280; margin-top: 4px; }
+.log-panel { background: #0a0a1a; border-radius: 8px; border: 1px solid #0f3460; padding: 8px; font-family: 'Courier New', monospace; font-size: 11px; overflow-y: auto; max-height: 200px; min-height: 100px; }
+.log-panel .cmd { color: #fbbf24; }
+.log-panel .err { color: #ef4444; }
+.log-panel .data { color: #a0a0b0; }
+.log-panel .cycle { color: #22c55e; }
 </style>
 </head>
 <body>
@@ -128,6 +133,11 @@ canvas { width: 100%; height: 100%; display: block; }
     <div class="chart-title">Raw Means &mdash; <span style="color:#ef4444">dark</span> <span style="color:#22c55e">full</span> <span style="color:#3b82f6">sample</span></div>
     <canvas id="chart-raw"></canvas>
   </div>
+
+  <div style="flex:0 0 auto">
+    <div class="chart-title">Serial Log</div>
+    <div class="log-panel" id="serial-log"></div>
+  </div>
 </div>
 
 <script>
@@ -145,6 +155,7 @@ function connect() {
     if (m.type==='init') onInit(m);
     else if (m.type==='cycle') onCycle(m);
     else if (m.type==='settings_updated') onSettingsUpdated(m);
+    else if (m.type==='log') onLog(m);
   };
 }
 
@@ -193,6 +204,46 @@ function onSettingsUpdated(m) {
     el('map-full').value = m.series_mapping.full;
     el('map-sample').value = m.series_mapping.sample;
   }
+}
+
+const MAX_LOG = 500;
+function onLog(m) {
+  const log = el('serial-log');
+  const line = document.createElement('div');
+  const t = m.line;
+
+  if (t.startsWith('>')) {
+    line.className='cmd';
+    line.innerHTML = highlight(t);
+  } else if (t.startsWith('ERROR') || t.includes('missing')) {
+    line.className='err';
+    line.textContent = t;
+  } else if (t.startsWith('END_CYCLE')) {
+    line.className='cycle';
+    line.textContent = t;
+  } else if (t.match(/^(OK )?(GAIN|FADC|COUNT)=/)) {
+    line.className='cmd';
+    line.innerHTML = highlight(t);
+  } else if (t.startsWith('SERIES')) {
+    line.className='data';
+    line.innerHTML = highlight(t);
+  } else {
+    line.className='data';
+    line.textContent = t;
+  }
+  log.appendChild(line);
+  if (log.children.length > MAX_LOG) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+
+function highlight(t) {
+  return t
+    .replace(/^(&gt;|>)\s*/, '<span style="color:#fbbf24">&gt; </span>')
+    .replace(/(SERIES[123])/g, '<span style="color:#60a5fa">$1</span>')
+    .replace(/(GAIN|FADC|COUNT)(=)(\S+)/g, '<span style="color:#c084fc">$1</span>$2<span style="color:#34d399">$3</span>')
+    .replace(/(OK)\s/g, '<span style="color:#22c55e">$1</span> ')
+    .replace(/(END_CYCLE)/g, '<span style="color:#22c55e">$1</span>')
+    .replace(/(16777215)/g, '<span style="color:#ef4444;font-weight:bold">$1</span>');
 }
 
 async function saveSettings() {

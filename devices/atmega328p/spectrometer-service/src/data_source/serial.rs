@@ -25,6 +25,8 @@ pub struct SerialDataSource {
     is_active: Arc<AtomicBool>,
     reader_task: Option<JoinHandle<()>>,
     cmd_tx: Option<mpsc::Sender<String>>,
+    /// Channel for forwarding raw serial lines to the UI
+    log_tx: Option<mpsc::Sender<String>>,
 }
 
 impl SerialDataSource {
@@ -46,6 +48,7 @@ impl SerialDataSource {
             is_active: Arc::new(AtomicBool::new(false)),
             reader_task: None,
             cmd_tx: None,
+            log_tx: None,
         }
     }
 
@@ -99,6 +102,7 @@ impl DataSource for SerialDataSource {
         let is_active = self.is_active.clone();
         let port_name = self.port_name.clone();
         let log_file = self.log_file.clone();
+        let log_tx = self.log_tx.clone();
 
         // Spawn blocking reader + command writer task
         let reader_handle = tokio::task::spawn_blocking(move || {
@@ -130,9 +134,13 @@ impl DataSource for SerialDataSource {
             while is_active.load(Ordering::SeqCst) {
                 // Check for pending commands (non-blocking)
                 while let Ok(cmd) = cmd_rx.try_recv() {
+                    let cmd_line = format!("> {}", cmd.trim());
                     tracing::info!("Sending command: {}", cmd.trim());
                     if let Some(w) = &mut log_writer {
-                        log_line(w, &format!("> {}", cmd.trim()));
+                        log_line(w, &cmd_line);
+                    }
+                    if let Some(tx) = &log_tx {
+                        let _ = tx.blocking_send(cmd_line);
                     }
                     if let Err(e) = write_port.write_all(cmd.as_bytes()) {
                         tracing::error!("Failed to send command: {e}");
@@ -144,8 +152,12 @@ impl DataSource for SerialDataSource {
                 match reader.read_line(&mut line_buf) {
                     Ok(0) => continue,
                     Ok(_) => {
+                        let trimmed = line_buf.trim_end().to_string();
                         if let Some(w) = &mut log_writer {
-                            log_line(w, line_buf.trim_end());
+                            log_line(w, &trimmed);
+                        }
+                        if let Some(tx) = &log_tx {
+                            let _ = tx.blocking_send(trimmed);
                         }
                         let parsed = parse_line(&line_buf);
                         if let Some(cycle) = accumulator.process_line(parsed)
@@ -186,6 +198,10 @@ impl DataSource for SerialDataSource {
 
     fn is_active(&self) -> bool {
         self.is_active.load(Ordering::SeqCst)
+    }
+
+    fn set_log_channel(&mut self, tx: mpsc::Sender<String>) {
+        self.log_tx = Some(tx);
     }
 
     async fn send_command(&mut self, command: &str) -> Result<(), SpectrometerError> {

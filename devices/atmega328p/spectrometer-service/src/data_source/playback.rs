@@ -27,10 +27,10 @@ pub struct PlaybackDataSource {
     log_file: PathBuf,
     speed_multiplier: f64,
     loop_playback: bool,
-    /// Cycle interval for raw logs without timestamps (milliseconds)
     cycle_interval_ms: u64,
     is_active: Arc<AtomicBool>,
     reader_task: Option<JoinHandle<()>>,
+    log_tx: Option<mpsc::Sender<String>>,
 }
 
 impl PlaybackDataSource {
@@ -43,6 +43,7 @@ impl PlaybackDataSource {
             cycle_interval_ms: 100, // default: 100ms between cycles
             is_active: Arc::new(AtomicBool::new(false)),
             reader_task: None,
+            log_tx: None,
         }
     }
 
@@ -61,6 +62,7 @@ impl PlaybackDataSource {
             cycle_interval_ms,
             is_active: Arc::new(AtomicBool::new(false)),
             reader_task: None,
+            log_tx: None,
         }
     }
 
@@ -139,6 +141,7 @@ impl PlaybackDataSource {
         loop_playback: bool,
         is_active: Arc<AtomicBool>,
         cycle_tx: mpsc::Sender<MeasurementCycle>,
+        log_tx: Option<mpsc::Sender<String>>,
     ) {
         tracing::info!(
             "Timestamped playback from {:?} at {}x speed",
@@ -194,6 +197,9 @@ impl PlaybackDataSource {
 
                 last_timestamp = Some(timestamped.timestamp);
 
+                if let Some(tx) = &log_tx {
+                    let _ = tx.send(timestamped.content.clone()).await;
+                }
                 let parsed = parse_line(&timestamped.content);
                 if let Some(cycle) =
                     accumulator.process_line_with_timestamp(parsed, timestamped.timestamp)
@@ -223,6 +229,7 @@ impl PlaybackDataSource {
         loop_playback: bool,
         is_active: Arc<AtomicBool>,
         cycle_tx: mpsc::Sender<MeasurementCycle>,
+        log_tx: Option<mpsc::Sender<String>>,
     ) {
         let effective_interval_ms = (cycle_interval_ms as f64 / speed_multiplier) as u64;
         tracing::info!(
@@ -257,7 +264,11 @@ impl PlaybackDataSource {
                     }
                 };
 
-                let parsed = parse_line(line.trim());
+                let trimmed = line.trim().to_string();
+                if let Some(tx) = &log_tx {
+                    let _ = tx.send(trimmed.clone()).await;
+                }
+                let parsed = parse_line(&trimmed);
 
                 // Generate a synthetic timestamp for this cycle
                 let synthetic_ts = base_timestamp
@@ -309,6 +320,7 @@ impl DataSource for PlaybackDataSource {
         let loop_playback = self.loop_playback;
         let log_file = self.log_file.clone();
         let cycle_interval_ms = self.cycle_interval_ms;
+        let log_tx = self.log_tx.clone();
 
         // Auto-detect whether file has timestamps
         let has_timestamps = Self::detect_has_timestamps(&log_file).await;
@@ -322,11 +334,13 @@ impl DataSource for PlaybackDataSource {
                     loop_playback,
                     is_active,
                     cycle_tx,
+                    log_tx,
                 )
                 .await;
             })
         } else {
             tracing::info!("Detected raw log format (no timestamps)");
+            let log_tx2 = log_tx;
             tokio::spawn(async move {
                 Self::run_raw(
                     log_file,
@@ -335,6 +349,7 @@ impl DataSource for PlaybackDataSource {
                     loop_playback,
                     is_active,
                     cycle_tx,
+                    log_tx2,
                 )
                 .await;
             })
@@ -370,6 +385,10 @@ impl DataSource for PlaybackDataSource {
 
     fn name(&self) -> &str {
         self.log_file.to_str().unwrap_or("playback")
+    }
+
+    fn set_log_channel(&mut self, tx: mpsc::Sender<String>) {
+        self.log_tx = Some(tx);
     }
 }
 

@@ -85,6 +85,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Using {} outlier exclusion", outlier_excluder.name());
 
+    // Set up log channel (serial lines -> WebSocket broadcast)
+    let (log_line_tx, mut log_line_rx) = mpsc::channel::<String>(256);
+    data_source.set_log_channel(log_line_tx);
+
+    let log_broadcast_tx = broadcast_tx.clone();
+    let log_handle = tokio::spawn(async move {
+        while let Some(line) = log_line_rx.recv().await {
+            let _ = log_broadcast_tx.send(serde_json::json!({
+                "type": "log",
+                "line": line,
+            }));
+        }
+    });
+
     // Start data source and get cycle receiver
     let cycle_rx = data_source.start().await?;
 
@@ -127,6 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Shutting down...");
     processing_handle.abort();
     cmd_handle.abort();
+    log_handle.abort();
 
     Ok(())
 }

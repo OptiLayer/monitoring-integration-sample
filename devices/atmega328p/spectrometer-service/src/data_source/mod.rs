@@ -27,6 +27,9 @@ pub trait DataSource: Send + Sync {
 
     /// Get the name of this data source for logging
     fn name(&self) -> &str;
+
+    /// Set a channel for forwarding raw serial/log lines to the UI
+    fn set_log_channel(&mut self, _tx: mpsc::Sender<String>) {}
 }
 
 /// Configuration for creating data sources
