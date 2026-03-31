@@ -50,6 +50,7 @@ from typing import Any
 
 from horiba_sdk.devices.ccd_discovery import ChargeCoupledDevicesDiscovery
 from horiba_sdk.devices.monochromator_discovery import MonochromatorsDiscovery
+from horiba_sdk.devices.spectracq3_discovery import SpectrAcq3Discovery
 
 
 def _safe_parse_ccds(
@@ -90,8 +91,28 @@ def _safe_parse_monos(
     return detected
 
 
+def _safe_parse_spectracq3(
+    self: SpectrAcq3Discovery,
+    raw_device_list: dict[str, Any],
+) -> list:
+    from horiba_sdk.devices.single_devices import SpectrAcq3 as _SAQ3
+
+    print(f"  saq3_list response: {raw_device_list}")
+    detected: list[_SAQ3] = []
+    for device in raw_device_list.get("devices", []):
+        print(f"    SpectrAcq3 device: {device}")
+        try:
+            saq3 = _SAQ3(device["index"], self._communicator, self._error_db)
+            print(f"    -> Detected SpectrAcq3: {device['deviceType']}")
+            detected.append(saq3)
+        except Exception as e:
+            print(f"    -> Error parsing SpectrAcq3: {e}")
+    return detected
+
+
 ChargeCoupledDevicesDiscovery._parse_ccds = _safe_parse_ccds  # type: ignore[assignment]
 MonochromatorsDiscovery._parse_monos = _safe_parse_monos  # type: ignore[assignment]
+SpectrAcq3Discovery._parse_devices = _safe_parse_spectracq3  # type: ignore[assignment]
 
 
 @dataclass
