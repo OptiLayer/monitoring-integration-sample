@@ -42,6 +42,57 @@ from horiba_sdk.devices.single_devices.monochromator import Monochromator
 if TYPE_CHECKING:
     from horiba_sdk.devices.single_devices.ccd import ChargeCoupledDevice
 
+# ---------------------------------------------------------------------------
+# Monkey-patch: horiba_sdk 1.0.0 crashes with KeyError: 'devices' when
+# ccd_list (or mono_list) returns an empty response.  Use .get() instead.
+# ---------------------------------------------------------------------------
+from typing import Any
+
+from horiba_sdk.devices.ccd_discovery import ChargeCoupledDevicesDiscovery
+from horiba_sdk.devices.monochromator_discovery import MonochromatorsDiscovery
+
+
+def _safe_parse_ccds(
+    self: ChargeCoupledDevicesDiscovery,
+    raw_device_list: dict[str, Any],
+) -> list:
+    from horiba_sdk.devices.single_devices import ChargeCoupledDevice as _CCD
+
+    print(f"  ccd_list response: {raw_device_list}")
+    detected: list[_CCD] = []
+    for device in raw_device_list.get("devices", []):
+        print(f"    CCD device: {device}")
+        try:
+            ccd = _CCD(device["index"], self._communicator, self._error_db)
+            print(f"    -> Detected CCD: {device['deviceType']}")
+            detected.append(ccd)
+        except Exception as e:
+            print(f"    -> Error parsing CCD: {e}")
+    return detected
+
+
+def _safe_parse_monos(
+    self: MonochromatorsDiscovery,
+    raw_device_list: dict[str, Any],
+) -> list:
+    from horiba_sdk.devices.single_devices import Monochromator as _Mono
+
+    print(f"  mono_list response: {raw_device_list}")
+    detected: list[_Mono] = []
+    for device in raw_device_list.get("devices", []):
+        print(f"    Mono device: {device}")
+        try:
+            mono = _Mono(device["index"], self._communicator, self._error_db)
+            print(f"    -> Detected Monochromator: {device['deviceType']}")
+            detected.append(mono)
+        except Exception as e:
+            print(f"    -> Error parsing Monochromator: {e}")
+    return detected
+
+
+ChargeCoupledDevicesDiscovery._parse_ccds = _safe_parse_ccds  # type: ignore[assignment]
+MonochromatorsDiscovery._parse_monos = _safe_parse_monos  # type: ignore[assignment]
+
 
 @dataclass
 class SpectrumData:
@@ -87,7 +138,13 @@ async def acquire_spectrum(
             raise TimeoutError(f"CCD acquisition timed out after {timeout}s")
         await asyncio.sleep(0.3)
 
-    return await ccd.get_acquisition_data()
+    raw = await ccd.get_acquisition_data()
+    print(f"  Raw acquisition keys: {list(raw.keys())}")
+    for i, acq in enumerate(raw.get("acquisition", [])):
+        print(f"  acquisition[{i}]: acqIndex={acq.get('acqIndex')}, ROIs={len(acq.get('roi', []))}")
+        for j, roi in enumerate(acq.get("roi", [])):
+            print(f"    roi[{j}]: xData={len(roi.get('xData', []))} pts, yData rows={len(roi.get('yData', []))}")
+    return raw
 
 
 def extract_spectrum(
@@ -118,6 +175,16 @@ def print_spectrum_summary(label: str, spectrum: SpectrumData) -> None:
         print(f"  Intensity range:  {intens.min():.1f} - {intens.max():.1f}")
         print(f"  Intensity mean:   {intens.mean():.1f}")
         print(f"  Intensity std:    {intens.std():.1f}")
+
+        # Print every 50th point so the full shape is visible
+        step = max(1, len(wl) // 50)
+        print(f"\n  {'Wavelength (nm)':>16}  {'Intensity':>12}")
+        print(f"  {'-' * 16}  {'-' * 12}")
+        for i in range(0, len(wl), step):
+            print(f"  {wl[i]:16.2f}  {intens[i]:12.1f}")
+        # Always include the last point
+        if (len(wl) - 1) % step != 0:
+            print(f"  {wl[-1]:16.2f}  {intens[-1]:12.1f}")
 
 
 # ---------------------------------------------------------------------------
