@@ -42,6 +42,18 @@ from horiba_sdk.devices.single_devices.monochromator import Monochromator
 if TYPE_CHECKING:
     from horiba_sdk.devices.single_devices.ccd import ChargeCoupledDevice
 
+# ---------------------------------------------------------------------------
+# horiba_sdk bug: SpectrAcq3 discovery crashes with KeyError: 'devices' when
+# no SpectrAcq3 hardware is present.  We don't use SpectrAcq3 (it's a single-
+# channel detector interface), but DeviceManager.start() always runs its
+# discovery.  No way to disable it, so patch _parse_devices to return [].
+# ---------------------------------------------------------------------------
+from typing import Any
+
+from horiba_sdk.devices.spectracq3_discovery import SpectrAcq3Discovery
+
+SpectrAcq3Discovery._parse_devices = lambda self, raw: []  # type: ignore[assignment]
+
 
 @dataclass
 class SpectrumData:
