@@ -526,14 +526,16 @@ async def test_range_scan(
             continue
 
         await ccd.acquisition_start(open_shutter=True)
+        await asyncio.sleep(1.0)
         acq_t0 = time.monotonic()
         while await ccd.get_acquisition_busy():
             if time.monotonic() - acq_t0 > 30:
                 await ccd.acquisition_abort()
                 raise TimeoutError(f"Acquisition timed out at {cwl:.1f} nm")
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.5)
 
         raw = await ccd.get_acquisition_data()
+        await ccd.acquisition_abort()
         roi = raw["acquisition"][0]["roi"][0]
         x_data = roi["xData"]
         y_data = roi["yData"]
@@ -666,9 +668,7 @@ async def run_all_tests(args: argparse.Namespace) -> None:
         else:
             results.append(("5. Configure CCD", "SKIP (CCD not initialized)"))
 
-        # Steps 6-7: Single spectrum + dark frame (requires CCD)
-        light: SpectrumData | None = None
-        dark: SpectrumData | None = None
+        # Step 6: Single spectrum
         if ccd_ok:
             try:
                 light = await test_single_spectrum(ccd, center_wl, args.exposure)
@@ -676,61 +676,60 @@ async def run_all_tests(args: argparse.Namespace) -> None:
             except Exception as e:
                 results.append(("6. Single spectrum", f"FAIL: {e}"))
                 print(f"\n  ** Single spectrum failed: {e}")
-
-            try:
-                dark = await test_dark_frame(ccd, center_wl, args.exposure)
-                results.append(("7. Dark frame", "PASS"))
-            except Exception as e:
-                results.append(("7. Dark frame", f"FAIL: {e}"))
-                print(f"\n  ** Dark frame failed: {e}")
-
-            if light and dark:
-                corrected = light.intensities - dark.intensities
-                print(
-                    f"\n  Dark-subtracted: mean={corrected.mean():.1f}, max={corrected.max():.1f}"
-                )
         else:
             results.append(("6. Single spectrum", "SKIP (CCD not ready)"))
-            results.append(("7. Dark frame", "SKIP (CCD not ready)"))
 
-        # Step 8: Series acquisition
+        # Step 7: Range scan (requires mono + CCD)
+        if ccd_ok and mono_ok:
+            try:
+                await test_range_scan(
+                    ccd, mono, args.start_wl, args.end_wl, args.exposure
+                )
+                results.append(("7. Range scan", "PASS"))
+            except Exception as e:
+                results.append(("7. Range scan", f"FAIL: {e}"))
+                print(f"\n  ** Range scan failed: {e}")
+        else:
+            results.append(("7. Range scan", "SKIP (need mono + CCD)"))
+
+        # Step 8: Dark frame
+        if ccd_ok:
+            try:
+                dark = await test_dark_frame(ccd, center_wl, args.exposure)
+                results.append(("8. Dark frame", "PASS"))
+            except Exception as e:
+                results.append(("8. Dark frame", f"FAIL: {e}"))
+                print(f"\n  ** Dark frame failed: {e}")
+        else:
+            results.append(("8. Dark frame", "SKIP (CCD not ready)"))
+
+        # Step 9: Series acquisition
         if ccd_ok:
             try:
                 await test_series_acquisition(
                     ccd, center_wl, args.exposure, args.series_count
                 )
-                results.append(("8. Series acquisition", "PASS"))
+                results.append(("9. Series acquisition", "PASS"))
             except Exception as e:
-                results.append(("8. Series acquisition", f"FAIL: {e}"))
+                results.append(("9. Series acquisition", f"FAIL: {e}"))
                 print(f"\n  ** Series acquisition failed: {e}")
         else:
-            results.append(("8. Series acquisition", "SKIP (CCD not ready)"))
+            results.append(("9. Series acquisition", "SKIP (CCD not ready)"))
 
-        # Step 9: MultiAcq mode
+        # Step 10: MultiAcq mode
         if ccd_ok and args.series_count >= 2:
             try:
                 await test_multi_acquisition(
                     ccd, center_wl, args.exposure, min(args.series_count, 5)
                 )
-                results.append(("9. MultiAcq mode", "PASS"))
+                results.append(("10. MultiAcq mode", "PASS"))
             except Exception as e:
-                results.append(("9. MultiAcq mode", f"FAIL: {e}"))
+                results.append(("10. MultiAcq mode", f"FAIL: {e}"))
                 print(f"\n  ** MultiAcq failed: {e}")
         elif not ccd_ok:
-            results.append(("9. MultiAcq mode", "SKIP (CCD not ready)"))
+            results.append(("10. MultiAcq mode", "SKIP (CCD not ready)"))
 
-        # Step 10: Range scan (requires mono + CCD)
-        if ccd_ok and mono_ok and args.start_wl is not None:
-            try:
-                await test_range_scan(
-                    ccd, mono, args.start_wl, args.end_wl, args.exposure
-                )
-                results.append(("10. Range scan", "PASS"))
-            except Exception as e:
-                results.append(("10. Range scan", f"FAIL: {e}"))
-                print(f"\n  ** Range scan failed: {e}")
-
-        # Step 11: Grating switch (requires mono, opt-in)
+        # Step 11: Grating switch (opt-in)
         if args.test_grating:
             if mono_ok:
                 try:
@@ -792,10 +791,10 @@ def main():
         "--series-count", type=int, default=5, help="Number of spectra in series test"
     )
     parser.add_argument(
-        "--start-wl", type=float, default=None, help="Range scan start wavelength (nm)"
+        "--start-wl", type=float, default=400.0, help="Range scan start wavelength (nm)"
     )
     parser.add_argument(
-        "--end-wl", type=float, default=800.0, help="Range scan end wavelength (nm)"
+        "--end-wl", type=float, default=600.0, help="Range scan end wavelength (nm)"
     )
     parser.add_argument(
         "--test-grating", action="store_true", help="Test grating switching (slow)"
