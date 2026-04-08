@@ -350,8 +350,8 @@ async def test_setup_ccd_acquisition(
     # Wavelength calibration
     if mono is not None:
         await ccd.set_center_wavelength(mono.id(), center_wavelength)
-        await ccd.set_x_axis_conversion_type(XAxisConversionType.FROM_CCD_FIRMWARE)
-        print("  X-axis: wavelength from CCD firmware fit parameters")
+        await ccd.set_x_axis_conversion_type(XAxisConversionType.FROM_ICL_SETTINGS_INI)
+        print("  X-axis: wavelength from ICL settings")
         print(f"  Center wavelength: {center_wavelength:.2f} nm")
     else:
         print("  X-axis: pixel index (no monochromator for wavelength calibration)")
