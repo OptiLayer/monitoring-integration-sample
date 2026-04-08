@@ -101,15 +101,17 @@ async def acquire_spectrum(
         raise RuntimeError("CCD not ready for acquisition")
 
     await ccd.acquisition_start(open_shutter=open_shutter)
+    await asyncio.sleep(1.0)  # let CCD start before polling
 
     t0 = time.monotonic()
     while await ccd.get_acquisition_busy():
         if time.monotonic() - t0 > timeout:
             await ccd.acquisition_abort()
             raise TimeoutError(f"CCD acquisition timed out after {timeout}s")
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.5)
 
     raw = await ccd.get_acquisition_data()
+    await ccd.acquisition_abort()  # reset CCD state for next acquisition
     print(f"  Raw acquisition keys: {list(raw.keys())}")
     for i, acq in enumerate(raw.get("acquisition", [])):
         print(f"  acquisition[{i}]: acqIndex={acq.get('acqIndex')}, ROIs={len(acq.get('roi', []))}")
@@ -345,11 +347,11 @@ async def test_setup_ccd_acquisition(
         y_bin=chip_y,  # full vertical binning
     )
 
-    # Wavelength calibration via ICL (requires monochromator)
+    # Wavelength calibration
     if mono is not None:
         await ccd.set_center_wavelength(mono.id(), center_wavelength)
-        await ccd.set_x_axis_conversion_type(XAxisConversionType.FROM_ICL_SETTINGS_INI)
-        print("  X-axis: wavelength from ICL settings")
+        await ccd.set_x_axis_conversion_type(XAxisConversionType.FROM_CCD_FIRMWARE)
+        print("  X-axis: wavelength from CCD firmware fit parameters")
         print(f"  Center wavelength: {center_wavelength:.2f} nm")
     else:
         print("  X-axis: pixel index (no monochromator for wavelength calibration)")
