@@ -252,26 +252,50 @@ async def test_initialize_mono(mono: Monochromator) -> dict:
 
 
 async def test_initialize_ccd(ccd: ChargeCoupledDevice) -> tuple[int, int]:
-    """Step 3: Initialize CCD, read configuration. Returns (chip_width, chip_height)."""
+    """Step 3: Initialize CCD and do a minimal test acquisition.
+
+    Follows the exact pattern from the SDK's own test_ccd_functionality:
+    open -> restart -> sleep(10) -> set_format -> set_roi -> acquire
+    """
     print("\n" + "=" * 60)
     print("STEP 3: Initialize CCD")
     print("=" * 60)
 
     await ccd.open()
-    config = await ccd.get_configuration()
+
+    print("  Restarting CCD (clears stale state)...")
+    await ccd.restart()
+    await asyncio.sleep(10)
+
     chip_size = await ccd.get_chip_size()
     temperature = await ccd.get_chip_temperature()
-
     print(f"  Chip size:        {chip_size.width} x {chip_size.height} pixels")
     print(f"  Chip temperature: {temperature:.1f} C")
-    print("  Configuration:")
-    for key, val in config.items():
-        print(f"    {key}: {val}")
 
-    current_gain = await ccd.get_gain_token()
-    current_speed = await ccd.get_speed_token()
-    print(f"  Current gain:    {current_gain}")
-    print(f"  Current speed:   {current_speed}")
+    # Minimal acquisition — exactly like SDK test_ccd_functionality
+    print("\n  Minimal test acquisition (SDK test pattern)...")
+    await ccd.set_acquisition_format(1, AcquisitionFormat.SPECTRA_IMAGE)
+    await ccd.set_region_of_interest()  # all defaults
+
+    ready = await ccd.get_acquisition_ready()
+    print(f"  Acquisition ready: {ready}")
+    if not ready:
+        raise RuntimeError("CCD not ready for acquisition after restart")
+
+    await ccd.acquisition_start(open_shutter=True)
+    await asyncio.sleep(1)
+
+    t0 = time.monotonic()
+    while await ccd.get_acquisition_busy():
+        if time.monotonic() - t0 > 30:
+            await ccd.acquisition_abort()
+            raise TimeoutError("Minimal acquisition timed out")
+        await asyncio.sleep(0.3)
+
+    raw = await ccd.get_acquisition_data()
+    roi = raw["acquisition"][0]["roi"][0]
+    n_pts = len(roi.get("xData", []))
+    print(f"  Minimal acquisition OK: {n_pts} data points")
 
     return chip_size.width, chip_size.height
 
