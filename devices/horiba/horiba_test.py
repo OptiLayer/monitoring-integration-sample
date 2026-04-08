@@ -172,7 +172,7 @@ async def test_connect_and_discover(args: argparse.Namespace) -> DeviceManager:
         start_icl=args.start_icl,
         icl_ip=args.icl_ip,
         icl_port=str(args.icl_port),
-        enable_binary_messages=True,
+        enable_binary_messages=False,
     )
     await dm.start()
 
