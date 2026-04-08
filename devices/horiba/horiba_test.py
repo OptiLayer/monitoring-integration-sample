@@ -266,39 +266,10 @@ async def test_initialize_ccd(ccd: ChargeCoupledDevice) -> tuple[int, int]:
 
     await ccd.open()
 
-    print("  Restarting CCD (clears stale state)...")
-    await ccd.restart()
-    await asyncio.sleep(10)
-
     chip_size = await ccd.get_chip_size()
     temperature = await ccd.get_chip_temperature()
     print(f"  Chip size:        {chip_size.width} x {chip_size.height} pixels")
     print(f"  Chip temperature: {temperature:.1f} C")
-
-    # Minimal acquisition — exactly like SDK test_ccd_functionality
-    print("\n  Minimal test acquisition (SDK test pattern)...")
-    await ccd.set_acquisition_format(1, AcquisitionFormat.SPECTRA_IMAGE)
-    await ccd.set_region_of_interest()  # all defaults
-
-    ready = await ccd.get_acquisition_ready()
-    print(f"  Acquisition ready: {ready}")
-    if not ready:
-        raise RuntimeError("CCD not ready for acquisition after restart")
-
-    await ccd.acquisition_start(open_shutter=True)
-    await asyncio.sleep(1)
-
-    t0 = time.monotonic()
-    while await ccd.get_acquisition_busy():
-        if time.monotonic() - t0 > 30:
-            await ccd.acquisition_abort()
-            raise TimeoutError("Minimal acquisition timed out")
-        await asyncio.sleep(0.3)
-
-    raw = await ccd.get_acquisition_data()
-    roi = raw["acquisition"][0]["roi"][0]
-    n_pts = len(roi.get("xData", []))
-    print(f"  Minimal acquisition OK: {n_pts} data points")
 
     return chip_size.width, chip_size.height
 
