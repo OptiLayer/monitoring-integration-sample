@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from horiba_sdk.core.acquisition_format import AcquisitionFormat
 from horiba_sdk.core.timer_resolution import TimerResolution
+from horiba_sdk.core.stitching import LinearSpectraStitch
 from horiba_sdk.core.x_axis_conversion_type import XAxisConversionType
 from horiba_sdk.devices.device_manager import DeviceManager
 from horiba_sdk.devices.single_devices.monochromator import Monochromator
@@ -483,6 +484,92 @@ async def test_multi_acquisition(
     return spectra
 
 
+async def test_range_scan(
+    ccd: ChargeCoupledDevice,
+    mono: Monochromator,
+    start_wl: float,
+    end_wl: float,
+    exposure_ms: int,
+) -> SpectrumData | None:
+    """Step 10: Range scan — acquire across a wide wavelength range and stitch."""
+    print("\n" + "=" * 60)
+    print(f"STEP 10: Range scan ({start_wl:.0f} - {end_wl:.0f} nm)")
+    print("=" * 60)
+
+    # Ask SDK to calculate center wavelengths needed to cover the range
+    pixel_overlap = 50
+    center_wavelengths = await ccd.range_mode_center_wavelengths(
+        mono.id(), start_wl, end_wl, pixel_overlap
+    )
+    print(f"  Center wavelengths: {len(center_wavelengths)} positions")
+    for i, cwl in enumerate(center_wavelengths):
+        print(f"    [{i}] {cwl:.1f} nm")
+
+    captures: list[list] = []
+    t0 = time.monotonic()
+
+    for i, cwl in enumerate(center_wavelengths):
+        # Move mono
+        await mono.move_to_target_wavelength(cwl)
+        await wait_mono_ready(mono)
+        actual_wl = await mono.get_current_wavelength()
+
+        # Tell CCD about the new center wavelength
+        await ccd.set_center_wavelength(mono.id(), actual_wl)
+
+        # Acquire
+        await ccd.set_exposure_time(exposure_ms)
+        if not await ccd.get_acquisition_ready():
+            print(f"  [{i + 1}/{len(center_wavelengths)}] CCD not ready, skipping")
+            continue
+
+        await ccd.acquisition_start(open_shutter=True)
+        acq_t0 = time.monotonic()
+        while await ccd.get_acquisition_busy():
+            if time.monotonic() - acq_t0 > 30:
+                await ccd.acquisition_abort()
+                raise TimeoutError(f"Acquisition timed out at {cwl:.1f} nm")
+            await asyncio.sleep(0.3)
+
+        raw = await ccd.get_acquisition_data()
+        roi = raw["acquisition"][0]["roi"][0]
+        x_data = roi["xData"]
+        y_data = roi["yData"]
+        captures.append([x_data, y_data])
+
+        elapsed = time.monotonic() - t0
+        print(f"  [{i + 1}/{len(center_wavelengths)}] center={actual_wl:.1f} nm  "
+              f"range={x_data[0]:.1f}-{x_data[-1]:.1f} nm  t={elapsed:.1f}s")
+
+    total_time = time.monotonic() - t0
+    print(f"\n  Total scan time: {total_time:.1f} s")
+
+    if not captures:
+        print("  No captures — range scan failed")
+        return None
+
+    # Stitch spectra together
+    stitch = LinearSpectraStitch(captures)
+    stitched = stitch.stitched_spectra()
+    wl_all = np.array(stitched[0], dtype=np.float64)
+    intens_all = np.array(stitched[1][0], dtype=np.float64)
+
+    # Filter to requested range
+    mask = (wl_all >= start_wl) & (wl_all <= end_wl)
+    wl_filtered = wl_all[mask]
+    intens_filtered = intens_all[mask]
+
+    spectrum = SpectrumData(
+        wavelengths=wl_filtered,
+        intensities=intens_filtered,
+        timestamp="",
+        center_wavelength=(start_wl + end_wl) / 2,
+        exposure_time_ms=exposure_ms,
+    )
+    print_spectrum_summary(f"Range scan {start_wl:.0f}-{end_wl:.0f} nm", spectrum)
+    return spectrum
+
+
 async def test_grating_switch(mono: Monochromator) -> None:
     """Step 10: Test grating switching."""
     print("\n" + "=" * 60)
@@ -630,17 +717,28 @@ async def run_all_tests(args: argparse.Namespace) -> None:
         elif not ccd_ok:
             results.append(("9. MultiAcq mode", "SKIP (CCD not ready)"))
 
-        # Step 10: Grating switch (requires mono, opt-in)
+        # Step 10: Range scan (requires mono + CCD)
+        if ccd_ok and mono_ok and args.start_wl is not None:
+            try:
+                await test_range_scan(
+                    ccd, mono, args.start_wl, args.end_wl, args.exposure
+                )
+                results.append(("10. Range scan", "PASS"))
+            except Exception as e:
+                results.append(("10. Range scan", f"FAIL: {e}"))
+                print(f"\n  ** Range scan failed: {e}")
+
+        # Step 11: Grating switch (requires mono, opt-in)
         if args.test_grating:
             if mono_ok:
                 try:
                     await test_grating_switch(mono)
-                    results.append(("10. Grating switch", "PASS"))
+                    results.append(("11. Grating switch", "PASS"))
                 except Exception as e:
-                    results.append(("10. Grating switch", f"FAIL: {e}"))
+                    results.append(("11. Grating switch", f"FAIL: {e}"))
                     print(f"\n  ** Grating switch failed: {e}")
             else:
-                results.append(("10. Grating switch", "SKIP (no monochromator)"))
+                results.append(("11. Grating switch", "SKIP (no monochromator)"))
 
     finally:
         print("\nCleaning up...")
@@ -690,6 +788,12 @@ def main():
     )
     parser.add_argument(
         "--series-count", type=int, default=5, help="Number of spectra in series test"
+    )
+    parser.add_argument(
+        "--start-wl", type=float, default=None, help="Range scan start wavelength (nm)"
+    )
+    parser.add_argument(
+        "--end-wl", type=float, default=800.0, help="Range scan end wavelength (nm)"
     )
     parser.add_argument(
         "--test-grating", action="store_true", help="Test grating switching (slow)"
