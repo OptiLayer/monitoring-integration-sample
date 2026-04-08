@@ -81,7 +81,7 @@ async def wait_mono_ready(mono: Monochromator, timeout: float = 120.0) -> None:
 async def acquire_spectrum(
     ccd: ChargeCoupledDevice,
     exposure_time_ms: int,
-    open_shutter: bool = False,
+    open_shutter: bool = True,
     timeout: float = 30.0,
 ) -> dict:
     """Run a single CCD acquisition and return raw data dict."""
@@ -329,11 +329,14 @@ async def test_setup_ccd_acquisition(
     else:
         print("  X-axis: pixel index (no monochromator for wavelength calibration)")
 
-    # Timing
+    # Timing and readout
     await ccd.set_timer_resolution(TimerResolution.MILLISECONDS)
     await ccd.set_acquisition_count(1)
+    await ccd.set_gain(0)
+    await ccd.set_speed(0)
 
     print(f"  ROI: {chip_x} x {chip_y}, full vertical binning")
+    print("  Gain: 0 (High Light), Speed: 0 (50 kHz)")
 
 
 async def test_single_spectrum(
@@ -343,10 +346,10 @@ async def test_single_spectrum(
 ) -> SpectrumData:
     """Step 6: Acquire a single spectrum with shutter open."""
     print("\n" + "=" * 60)
-    print(f"STEP 6: Single spectrum (exposure={exposure_ms} ms)")
+    print(f"STEP 6: Single spectrum (exposure={exposure_ms} ms, shutter=OPEN)")
     print("=" * 60)
 
-    raw = await acquire_spectrum(ccd, exposure_ms, open_shutter=False)
+    raw = await acquire_spectrum(ccd, exposure_ms, open_shutter=True)
     spectrum = extract_spectrum(raw, center_wl, exposure_ms)
     print_spectrum_summary("Light spectrum", spectrum)
     return spectrum
@@ -359,7 +362,7 @@ async def test_dark_frame(
 ) -> SpectrumData:
     """Step 7: Acquire a dark frame with shutter closed."""
     print("\n" + "=" * 60)
-    print(f"STEP 7: Dark frame (exposure={exposure_ms} ms, no light)")
+    print(f"STEP 7: Dark frame (exposure={exposure_ms} ms, shutter=CLOSED)")
     print("=" * 60)
 
     raw = await acquire_spectrum(ccd, exposure_ms, open_shutter=False)
@@ -383,7 +386,7 @@ async def test_series_acquisition(
     t0 = time.monotonic()
 
     for i in range(count):
-        raw = await acquire_spectrum(ccd, exposure_ms, open_shutter=False)
+        raw = await acquire_spectrum(ccd, exposure_ms, open_shutter=True)
         spectrum = extract_spectrum(raw, center_wl, exposure_ms)
         spectra.append(spectrum)
         elapsed = time.monotonic() - t0
@@ -422,7 +425,7 @@ async def test_multi_acquisition(
         raise RuntimeError("CCD not ready for multi-acquisition")
 
     t0 = time.monotonic()
-    await ccd.acquisition_start(open_shutter=False)
+    await ccd.acquisition_start(open_shutter=True)
 
     # Wait for all acquisitions to complete
     timeout = exposure_ms * count / 1000.0 + 30.0
