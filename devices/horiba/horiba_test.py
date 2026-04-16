@@ -298,6 +298,7 @@ async def test_setup_ccd_acquisition(
     mono: Monochromator | None,
     center_wavelength: float,
     chip_size: tuple[int, int],
+    grating_index: int = 0,
 ) -> None:
     """Step 5: Configure CCD for acquisition."""
     print("\n" + "=" * 60)
@@ -305,6 +306,14 @@ async def test_setup_ccd_acquisition(
     print("=" * 60)
 
     chip_x, chip_y = chip_size
+
+    # Set grating explicitly (ICL needs this for wavelength conversion)
+    if mono is not None:
+        grating = Monochromator.Grating(grating_index)
+        await mono.set_turret_grating(grating)
+        await wait_mono_ready(mono)
+        actual = await mono.get_turret_grating()
+        print(f"  Grating: {actual.name} (index {grating_index})")
 
     # Full chip, single ROI, vertical binning
     await ccd.set_acquisition_format(1, AcquisitionFormat.SPECTRA_IMAGE)
@@ -629,7 +638,8 @@ async def run_all_tests(args: argparse.Namespace) -> None:
         if ccd_ok:
             try:
                 await test_setup_ccd_acquisition(
-                    ccd, mono if mono_ok else None, center_wl, chip_size
+                    ccd, mono if mono_ok else None, center_wl, chip_size,
+                    grating_index=args.grating,
                 )
                 results.append(("5. Configure CCD", "PASS"))
             except Exception as e:
@@ -766,6 +776,9 @@ def main():
     )
     parser.add_argument(
         "--end-wl", type=float, default=600.0, help="Range scan end wavelength (nm)"
+    )
+    parser.add_argument(
+        "--grating", type=int, default=0, help="Grating index: 0=FIRST(1800), 1=SECOND(1200), 2=THIRD(300)"
     )
     parser.add_argument(
         "--test-grating", action="store_true", help="Test grating switching (slow)"
