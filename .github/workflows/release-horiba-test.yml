@@ -26,7 +26,13 @@ jobs:
         working-directory: devices/horiba
         run: uv run pyinstaller --onefile --collect-data horiba_sdk --name horiba-test-${{ github.ref_name }} horiba_test.py
 
+      - name: Bundle center_scan.py (SDK example verbatim)
+        working-directory: devices/horiba
+        run: uv run pyinstaller --onefile --collect-data horiba_sdk --collect-all matplotlib --name horiba-center-scan-${{ github.ref_name }} center_scan.py
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: devices/horiba/dist/horiba-test-${{ github.ref_name }}.exe
+          files: |
+            devices/horiba/dist/horiba-test-${{ github.ref_name }}.exe
+            devices/horiba/dist/horiba-center-scan-${{ github.ref_name }}.exe
