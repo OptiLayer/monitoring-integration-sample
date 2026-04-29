@@ -1,0 +1,79 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize)]
+pub struct DeviceInfoResponse {
+    #[serde(rename = "type")]
+    pub device_type: String,
+    pub name: String,
+    pub capabilities: DeviceCapabilities,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DeviceCapabilities {
+    pub has_spectrometer: bool,
+    pub has_vacuum_chamber: bool,
+    pub spectrometer_type: String,
+    pub is_monochromatic: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RegisterRequest {
+    pub monitoring_api_url: String,
+    pub spectrometer_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RegisterResponse {
+    pub status: String,
+    pub spectrometer_id: Option<String>,
+    pub monitoring_api_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConfigUpdateRequest {
+    pub source_url: Option<String>,
+    pub reconnect_ms: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConfigResponse {
+    pub source_url: String,
+    pub reconnect_ms: u64,
+    pub source_connected: bool,
+    pub scans_received: u64,
+}
+
+// ============= Vacuum Chamber (no-op) =============
+//
+// The bridge has no real vacuum chamber — the operator's external software owns
+// the physical hardware. We expose these endpoints purely so OptiMonitor's
+// AutomaticStrategy can drive layer-by-layer progression: when OptiReOpt's
+// dt_switch reaches zero, OptiMonitor PUTs /vacuum-chambers/{id}/material which
+// in turn POSTs here. We accept the call, log it, and let OptiMonitor advance
+// its own layer counter on the strength of the 200 OK.
+
+#[derive(Debug, Deserialize)]
+pub struct SetMaterialRequest {
+    pub material: String,
+    #[serde(default)]
+    pub fraction: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MaterialResponse {
+    pub material: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fraction: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VacuumChamberStatusResponse {
+    pub status: String,
+    pub is_depositing: bool,
+    pub current_material: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DepositionResponse {
+    pub status: String,
+}
