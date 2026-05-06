@@ -231,7 +231,7 @@ const DASHBOARD_HTML: &str = r##"<!doctype html>
     const url = proto + '://' + location.host + '/ws';
     const ws = new WebSocket(url);
     ws.onmessage = (ev) => {
-      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+      let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
       if (msg.type === 'init') {
         scansReceived = msg.scans_received || 0;
         mN.textContent = String(scansReceived);
@@ -265,7 +265,7 @@ const DASHBOARD_HTML: &str = r##"<!doctype html>
       refreshLiveness();
       setTimeout(connect, 1000);
     };
-    ws.onerror = () => { try { ws.close(); } catch {} };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
   }
 
   resizeCanvas();
