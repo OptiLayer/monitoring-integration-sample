@@ -13,14 +13,12 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> 
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // Send init snapshot so the dashboard can render immediately.
     let init = {
-        let cfg = state.config.read().await;
         let device = state.device.read().await;
         json!({
             "type": "init",
-            "source_url": cfg.source_url,
-            "source_connected": device.source_connected,
             "scans_received": device.scans_received,
             "latest_frame": device.latest_frame,
+            "last_frame_at": device.last_frame_at,
         })
     };
     if socket

@@ -14,8 +14,7 @@ mod service;
 
 use config::Cli;
 use monitoring::client::MonitoringClient;
-use service::source::run_source_loop;
-use service::state::{AppState, BridgeConfig, DeviceState};
+use service::state::{AppState, DeviceState};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,29 +28,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
-    let bridge_config = BridgeConfig {
-        source_url: cli.source.clone(),
-        reconnect_ms: cli.reconnect_ms,
-    };
-
     let device_state = Arc::new(RwLock::new(DeviceState::default()));
-    let config = Arc::new(RwLock::new(bridge_config));
     let (broadcast_tx, _) = broadcast::channel::<serde_json::Value>(256);
     let monitoring = Arc::new(MonitoringClient::new());
 
     let app_state = AppState {
-        device: device_state.clone(),
-        config: config.clone(),
-        broadcast_tx: broadcast_tx.clone(),
+        device: device_state,
+        broadcast_tx,
+        monitoring,
     };
-
-    // Spawn the source task that subscribes to OptiReOpt's broadcaster.
-    let source_handle = tokio::spawn(run_source_loop(
-        device_state.clone(),
-        config.clone(),
-        broadcast_tx.clone(),
-        monitoring.clone(),
-    ));
 
     let router = api::create_router(app_state);
     let addr: SocketAddr = format!("{}:{}", cli.host, cli.port).parse()?;
@@ -61,14 +46,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Open http://localhost:{}/ for the live spectrum dashboard",
         cli.port
     );
-    tracing::info!("Subscribing to OptiReOpt at {}", cli.source);
+    tracing::info!(
+        "Set OPTIREOPT_BROADCAST_URL=http://127.0.0.1:{}/ingest on the OptiReOpt side",
+        cli.port
+    );
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    source_handle.abort();
     Ok(())
 }
 

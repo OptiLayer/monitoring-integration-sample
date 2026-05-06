@@ -57,7 +57,7 @@ const DASHBOARD_HTML: &str = r##"<!doctype html>
   <div id="chart-wrap"><canvas id="chart"></canvas></div>
 </main>
 <footer>
-  Endpoints: <code>GET /device/info</code> · <code>GET /latest</code> · <code>GET|POST /config</code> · <code>POST /register</code> · <code>GET /ws</code>
+  Endpoints: <code>GET /device/info</code> · <code>GET /latest</code> · <code>POST /ingest</code> · <code>POST /register</code> · <code>GET /ws</code>
 </footer>
 <script>
 (function () {
@@ -77,7 +77,9 @@ const DASHBOARD_HTML: &str = r##"<!doctype html>
 
   let latest = null;          // { wavelengths, values, rt_data, timestamp }
   let scansReceived = 0;
+  let lastFrameAt = 0;        // performance.now() of last received frame
   const recentTs = [];        // wall-clock arrival times for rate calc
+  const FRESH_MS = 3000;      // pill is "live" while frames arrive within this window
 
   function fmt(x) {
     if (x === null || x === undefined || !isFinite(x)) return '—';
@@ -85,11 +87,17 @@ const DASHBOARD_HTML: &str = r##"<!doctype html>
     return x.toFixed(3);
   }
 
-  function setSourceStatus(connected) {
-    srcPill.classList.toggle('connected', connected);
-    srcPill.classList.toggle('disconnected', !connected);
-    srcPill.textContent = 'source: ' + (connected ? 'connected' : 'unreachable');
+  function setSourceStatus(live) {
+    srcPill.classList.toggle('connected', live);
+    srcPill.classList.toggle('disconnected', !live);
+    srcPill.textContent = 'source: ' + (live ? 'live' : 'idle');
   }
+
+  function refreshLiveness() {
+    const live = lastFrameAt > 0 && (performance.now() - lastFrameAt) < FRESH_MS;
+    setSourceStatus(live);
+  }
+  setInterval(refreshLiveness, 500);
 
   function resizeCanvas() {
     const r = cv.getBoundingClientRect();
@@ -194,6 +202,7 @@ const DASHBOARD_HTML: &str = r##"<!doctype html>
     latest = frame;
     scansReceived += 1;
     const now = performance.now();
+    lastFrameAt = now;
     recentTs.push(now);
     while (recentTs.length > 0 && now - recentTs[0] > 5000) recentTs.shift();
 
@@ -224,25 +233,26 @@ const DASHBOARD_HTML: &str = r##"<!doctype html>
     ws.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'init') {
-        setSourceStatus(!!msg.source_connected);
         scansReceived = msg.scans_received || 0;
         mN.textContent = String(scansReceived);
         if (msg.latest_frame) {
-          // Init latest_frame uses the source-side names (wavelength/values).
+          // Init latest_frame uses the ingest-side names (wavelength/values).
           applyFrame({
             wavelengths: msg.latest_frame.wavelength,
             values: msg.latest_frame.values,
             rt_data: msg.latest_frame.rt_data,
             timestamp: msg.latest_frame.timestamp,
           });
-          // applyFrame increments scansReceived; rewind so we don't double-count init.
+          // applyFrame increments scansReceived and stamps lastFrameAt; rewind
+          // the count, and zero lastFrameAt so the pill reflects current
+          // ingest activity rather than a stale snapshot at page load.
           scansReceived = msg.scans_received || 0;
           mN.textContent = String(scansReceived);
+          lastFrameAt = 0;
         }
+        refreshLiveness();
       } else if (msg.type === 'scan') {
         applyFrame(msg);
-      } else if (msg.type === 'source_status') {
-        setSourceStatus(msg.connection === 'connected');
       } else if (msg.type === 'material_changed') {
         switchCount += 1;
         const frac = (msg.fraction === null || msg.fraction === undefined) ? '' : ` (${msg.fraction}%)`;
@@ -251,7 +261,8 @@ const DASHBOARD_HTML: &str = r##"<!doctype html>
       }
     };
     ws.onclose = () => {
-      setSourceStatus(false);
+      lastFrameAt = 0;
+      refreshLiveness();
       setTimeout(connect, 1000);
     };
     ws.onerror = () => { try { ws.close(); } catch {} };

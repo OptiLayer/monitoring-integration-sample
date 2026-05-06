@@ -29,20 +29,6 @@ pub struct RegisterResponse {
     pub monitoring_api_url: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ConfigUpdateRequest {
-    pub source_url: Option<String>,
-    pub reconnect_ms: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConfigResponse {
-    pub source_url: String,
-    pub reconnect_ms: u64,
-    pub source_connected: bool,
-    pub scans_received: u64,
-}
-
 // ============= Vacuum Chamber (no-op) =============
 //
 // The bridge has no real vacuum chamber — the operator's external software owns
